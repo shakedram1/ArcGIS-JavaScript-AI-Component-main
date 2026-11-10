@@ -1,7 +1,7 @@
 import type { CreateHostedFeatureServiceResult } from "../utils/arcgisOnline";
 import { getCredential, createHostedFeatureService } from "../utils/arcgisOnline";
 import { extractLastUserText } from "../utils/agentHelpers";
-import { invokeToolPrompt } from "@arcgis/ai-orchestrator";
+import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
