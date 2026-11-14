@@ -124,14 +124,19 @@ export async function geocodeInTelAviv(
   if (!projectOperator.isLoaded()) await projectOperator.load();
   const ta = telAvivExtent(view);
   if (!ta) return null;
-  const candidates = await locator.addressToLocations(WORLD_GEOCODER_URL, {
-    address: { SingleLine: q },
-    maxLocations: 1,
-    countryCode: "ISR",
-    searchExtent: ta,
-    outSpatialReference: view.spatialReference,
-    outFields: ["Match_addr", "Addr_type"],
-  });
+  const geocode = async (constrained: boolean) =>
+    locator.addressToLocations(WORLD_GEOCODER_URL, {
+      address: { SingleLine: q },
+      maxLocations: constrained ? 1 : 3,
+      countryCode: "ISR",
+      ...(constrained ? { searchExtent: ta } : {}),
+      outSpatialReference: view.spatialReference,
+      outFields: ["Match_addr", "Addr_type"],
+    });
+  // searchExtent is a hard filter: when it yields nothing, geocode again without it to tell
+  // "outside Tel Aviv" ({ outside: true }) from "unknown place" (null).
+  let candidates = await geocode(true);
+  if (!candidates?.length) candidates = await geocode(false);
   const c = candidates?.[0];
   if (!c?.location) return null;
   const loc = await toViewSR(view, c.location);
