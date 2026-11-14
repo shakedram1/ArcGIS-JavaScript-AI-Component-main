@@ -160,6 +160,166 @@ cd ArcGIS-JavaScript-AI-Component
 npm run hub:dev
 ```
 
+## Full Dev Stack: App + MCP Hub + TA5500 RAG (Linux / WSL)
+
+This is the setup used for day-to-day development on the Tel Aviv master plan (תא/5500): the RAG service in Docker, the MCP hub, and the Vite dev server, all on one machine. It was written on WSL 2 (Ubuntu) but works the same on Linux and macOS.
+
+Four processes run, each from its own repo:
+
+| Process | Repo | Port | Started by |
+|---|---|---|---|
+| RAG embedder (llama.cpp, bge-m3) | `ta5500-rag` | internal | `docker compose` |
+| RAG service (FastAPI) | `ta5500-rag` | `8000` | `docker compose` |
+| MCP hub (starts the RAG's MCP wrapper over stdio) | this repo | `8808` | `npm run hub:dev` |
+| Vite dev server | this repo | `5173` | `npm run dev` |
+
+Request flow: browser → Vite (`/api/mcp` proxy) → hub → `ta5500-rag/mcp/server.mjs` → RAG service `:8000` → embedder.
+
+### Prerequisites
+
+- **Node.js 20+** (the RAG's MCP wrapper needs 20+; check with `node --version`).
+- **Docker** with Compose. On WSL: Docker Desktop for Windows with *Settings → Resources → WSL integration* turned on for your distro, so `docker` works inside the WSL shell. About 3 GB free memory and 3 GB disk for the RAG images and model.
+- **Both repos side by side**, for example:
+  ```text
+  ~/systematics-project/
+    ArcGIS-JavaScript-AI-Component-main/ArcGIS-JavaScript-AI-Component-main/   ← this app
+    ta5500-rag/                                                                ← the RAG
+  ```
+  Paths below assume this layout; adjust them if yours differs.
+- An ArcGIS OAuth client ID whose redirect URLs include `http://localhost:5173` (see [Configure ArcGIS OAuth](#5-configure-arcgis-oauth)).
+
+### 1. Start the RAG service (once per boot)
+
+```bash
+cd ~/systematics-project/ta5500-rag
+docker compose up -d --build
+```
+
+- The first start downloads the llama.cpp image (~1.2 GB) and the bge-m3 model (~1 GB) and builds the service image; expect a few minutes. Later starts take seconds, and both containers restart by themselves after a reboot as long as Docker starts.
+- Optional API key: put `RAG_API_KEY=<key>` in a `.env` file next to `docker-compose.yml` **before** `up`. Without it the service accepts unauthenticated calls, which is fine on your own machine.
+
+Wait until it is healthy (200; 503 means the embedder is still loading):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/health
+docker compose ps        # both containers "Up", embedder "(healthy)"
+```
+
+You can try the RAG on its own at `http://localhost:8000/demo` (Hebrew search page) and `http://localhost:8000/docs` (API).
+
+### 2. Install the RAG's MCP wrapper (once)
+
+```bash
+cd ~/systematics-project/ta5500-rag/mcp
+npm install
+```
+
+### 3. Install this app (once, and after every pull that changes `package.json`)
+
+```bash
+cd ~/systematics-project/ArcGIS-JavaScript-AI-Component-main/ArcGIS-JavaScript-AI-Component-main
+npm install
+```
+
+### 4. App environment (once)
+
+Create `.env.local` (git-ignored) in this app's folder:
+
+```bash
+VITE_ARCGIS_OAUTH_APP_ID=<your-client-id>
+VITE_ARCGIS_PORTAL_URL=https://www.arcgis.com
+VITE_APP_NAME=ArcGIS Assistant Demo
+```
+
+### 5. Hub config pointing at the RAG (once)
+
+Copy the example and edit the copy:
+
+```bash
+cp mcp-hub.config.example.json mcp-hub.config.json
+```
+
+Both `mcp-hub.config.json` and `mcp-hub.config.local.json` are git-ignored, so your path and key stay on your machine. The hub reads `mcp-hub.config.local.json` first if it exists, which is handy for a personal override. The `ta5500` entry should end up like this:
+
+```json
+{
+  "port": 8808,
+  "servers": [
+    {
+      "id": "ta5500",
+      "label": "TA5500 RAG (תוכנית המתאר)",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["/home/<you>/systematics-project/ta5500-rag/mcp/server.mjs"],
+      "env": { "RAG_BASE_URL": "http://localhost:8000", "RAG_API_KEY": "" },
+      "enabled": true
+    }
+  ]
+}
+```
+
+- Set `enabled` to `true` (the example ships disabled because its path is a placeholder).
+- `args` must be the **absolute Linux path** to `server.mjs` on your machine (`realpath ~/systematics-project/ta5500-rag/mcp/server.mjs` prints it). A Windows path such as `C:/...` does not work inside WSL.
+- `RAG_API_KEY`: empty if you did not set one in step 1, otherwise the same value.
+- Keep the server id `ta5500`: tool names are namespaced by it (`ta5500__search_plan`).
+- Never commit either config file. If you add a server that others need, add a placeholder version of it to `mcp-hub.config.example.json`.
+
+### 6. Run (two terminals, every session)
+
+Terminal 1, the MCP hub (restarts itself when hub code changes):
+
+```bash
+cd ~/systematics-project/ArcGIS-JavaScript-AI-Component-main/ArcGIS-JavaScript-AI-Component-main
+npm run hub:dev
+```
+
+Terminal 2, the app over plain HTTP on localhost:
+
+```bash
+cd ~/systematics-project/ArcGIS-JavaScript-AI-Component-main/ArcGIS-JavaScript-AI-Component-main
+VITE_DEV_HTTPS=false VITE_DEV_HOST=localhost npm run dev
+```
+
+The two variables are needed because the dev config defaults to HTTPS with a certificate from a Windows path and to the host `hilar-lap.stltd.co.il` (see `vite.config.ts`). To avoid typing them every time, add `VITE_DEV_HTTPS=false` and `VITE_DEV_HOST=localhost` to `.env.local`.
+
+Open `http://localhost:5173`, sign in, and load the TA5500 WebMap (the demo id under [Using The App](#using-the-app)). WSL forwards `localhost` to the Windows browser automatically.
+
+### 7. Check each link of the chain
+
+If the assistant does not answer from the plan, check the links in order. The first one that fails is the problem.
+
+```bash
+# RAG service
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/health          # 200
+
+# Hub: expect "runningCount":1 and "toolCount":4
+curl -s http://127.0.0.1:8808/health
+
+# Hub → MCP wrapper → RAG, without the assistant: prints Hebrew plan text with citations
+curl -s -X POST http://127.0.0.1:8808/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ta5500__search_plan","arguments":{"question":"מה ההוראות לאזור 703?"}}}' | head -c 600
+```
+
+In the browser, the console shows which agent handled each question ("Executing registered agent: …"), and the network tab shows `tools/call` requests to `/api/mcp` when the RAG was used.
+
+### Stopping
+
+- App and hub: `Ctrl+C` in each terminal.
+- RAG: `cd ~/systematics-project/ta5500-rag && docker compose down` (or leave it running; it idles cheaply).
+
+### Troubleshooting the dev stack
+
+| Symptom | Cause / fix |
+|---|---|
+| Vite exits at startup with `ENOENT ... server.cert` | Start it with `VITE_DEV_HTTPS=false` (step 6). |
+| Sign-in redirects fail | The OAuth credential's redirect URLs must include exactly `http://localhost:5173`. |
+| `docker: command not found` in WSL | Turn on WSL integration for your distro in Docker Desktop, then reopen the shell. |
+| RAG `/health` stays 503 | The embedder is still downloading or loading the model; `docker compose logs -f embedder`. If HuggingFace is blocked, see `docker-compose.override.example.yml` in the RAG repo. |
+| Hub `toolCount` is 0 or `ta5500` is not running | `enabled` is still `false`, the `args` path in your hub config is wrong, or step 2 (`npm install` in `mcp/`) was skipped. The hub terminal prints the error. |
+| `search_plan` returns HTTP 401 | `RAG_API_KEY` in the hub config does not match the RAG's `.env`. |
+| `search_plan` returns 503 | The embedder is down or cold; wait and retry, or restart it with `docker compose restart embedder`. |
+| The assistant replies with a generic "how can I help?" to every question | Known issue on this branch: with `@arcgis/ai-components` 5.1.x the custom agents do not yet receive the user's question (they still use the 5.0 agent contract). The RAG chain itself works (check with step 7). Fix tracked in `docs/superpowers/specs/2026-11-14-plan-aware-assistant-design.md` §5.0. |
+
 ## Local Tests
 
 This workspace includes a local-only test harness in `tests/`.
@@ -189,7 +349,7 @@ What the local tests currently cover:
 Demo WebMap ID:
 
 ```text
-0cafaf0aa4174e5bac19113ab69bdc85
+814f668511874bdb8ee3e49b515e8e5a
 ```
 
 Example prompts:
@@ -236,18 +396,15 @@ The hub runs on port `8808` by default and is proxied through Vite at `/api/mcp`
 
 ### Connecting the TA5500 RAG (Tel Aviv master plan)
 
-The RAG lives in its own repo (`ta5500-rag`). It exposes an HTTP service, and the `mcp/` folder there is an MCP (stdio) wrapper around it. No change to this app's code is needed: the existing MCP passthrough agent discovers the tools from the hub.
+The RAG lives in its own repo (`ta5500-rag`). It exposes an HTTP service, and the `mcp/` folder there is an MCP (stdio) wrapper around it. The existing MCP passthrough agent discovers the tools from the hub.
 
-1. In the `ta5500-rag` repo, start the service: `docker compose up -d` (it listens on `http://localhost:8000`). Put `RAG_API_KEY=<your key>` in the `.env` next to its `docker-compose.yml` first, if you want the API protected.
-2. In the same repo, run `npm install` inside `mcp/`.
-3. Add the server to `mcp-hub.config.json` (see the `ta5500` entry in `mcp-hub.config.example.json`), or from the MCP manager: Command `node`, Arguments `<path-to>/ta5500-rag/mcp/server.mjs`, environment `RAG_BASE_URL=http://localhost:8000` and `RAG_API_KEY=<same key>`. Set `enabled` to `true`.
-4. Reload the app. The hub should list four tools: `search_plan`, `get_plan_contents`, `get_plan_locations`, `get_plan_chunk`.
+Step-by-step setup, including running the RAG: see [Full Dev Stack: App + MCP Hub + TA5500 RAG](#full-dev-stack-app--mcp-hub--ta5500-rag-linux--wsl). The hub should list four tools: `search_plan`, `get_plan_contents`, `get_plan_locations`, `get_plan_chunk`.
 
 Tips:
 - Ask about the plan explicitly, for example "מה ההוראות בתוכנית תא/5500 לאזור 102א' דרום גלילות?". Questions that only mention a planning area can be routed to the map's data-exploration agent instead.
 - Check that it is the MCP agent that answered: the browser's network tab should show `tools/call` requests to `/api/mcp`.
 - Known issue: one test question ended with "The MCP Hub server did not return a response". The cause is not known yet.
-- `mcp-hub.config.json` holds the API key. It is git-ignored; do not commit it.
+- `mcp-hub.config.json` holds your path and the API key. It is git-ignored; do not commit it.
 
 ## Assistant Notes
 

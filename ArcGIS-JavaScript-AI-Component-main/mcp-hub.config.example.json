@@ -1,0 +1,25 @@
+{
+  "_readme": [
+    "This is the EXAMPLE config. It is safe to commit: no secrets, no personal paths.",
+    "To get started:",
+    "  cp mcp-hub.config.example.json mcp-hub.config.json",
+    "  # then set the absolute path to server.mjs on your machine, the key if your RAG uses one, and enabled: true.",
+    "mcp-hub.config.json and mcp-hub.config.local.json are gitignored and must never be committed.",
+    "The hub reads mcp-hub.config.local.json first if it exists, then mcp-hub.config.json."
+  ],
+  "port": 8808,
+  "servers": [
+    {
+      "id": "ta5500",
+      "label": "TA5500 RAG (תוכנית המתאר)",
+      "transport": "stdio",
+      "command": "node",
+      "args": ["<absolute path to ta5500-rag>/mcp/server.mjs"],
+      "env": {
+        "RAG_BASE_URL": "http://localhost:8000",
+        "RAG_API_KEY": ""
+      },
+      "enabled": false
+    }
+  ]
+}
