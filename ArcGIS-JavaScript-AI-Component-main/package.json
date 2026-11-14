@@ -7,6 +7,7 @@
     "dev": "node node_modules/vite/bin/vite.js",
     "build": "node node_modules/vite/bin/vite.js build",
     "preview": "node node_modules/vite/bin/vite.js preview",
+    "test": "tsx --test src/agents/__tests__/*.test.ts src/ta5500/__tests__/*.test.ts",
     "test:local": "npx tsx tests/run-tests.ts",
     "hub": "npx tsx hub/server.ts",
     "hub:dev": "npx tsx --watch hub/server.ts"

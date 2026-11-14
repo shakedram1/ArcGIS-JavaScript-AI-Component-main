@@ -66,7 +66,7 @@ Anti-goals
 ## 5. Design
 
 ### 5.0 Prerequisite: migrate custom agents to the 5.1 contract
-Every custom agent: state from `createAgentRuntimeState()` (or `...WithSharedState()` where it writes shared state) plus its own channels; read the request from `agentExecutionContext.assignedTask` (fallback `userRequest`) and history from `agentExecutionContext.messages`; return `status` and a one-line `summary`. Fix the tsc error. Verify each agent by hand once.
+Every custom agent: state from `agentRuntimeChannels()` (`src/agents/agentRuntime.ts`, same channels as the SDK's `createAgentRuntimeStateWithSharedState()`, testable in Node) plus its own channels; read the request from `agentExecutionContext.assignedTask` (fallback `userRequest`) and history from `agentExecutionContext.messages`; return `status` and a one-line `summary`. Fix the tsc error. Verify each agent by hand once.
 
 ### 5.1 TA5500 mode
 On map load, scan `map.allLayers` for the TA5500 layers (§5.6). If the planning-areas layer (122) is found, the app is in **TA5500 mode**:
