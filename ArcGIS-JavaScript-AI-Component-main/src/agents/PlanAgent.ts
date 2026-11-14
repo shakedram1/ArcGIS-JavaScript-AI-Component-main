@@ -25,7 +25,6 @@ import {
   PLAN_AGENT_DESCRIPTION,
   RESOLVE_PROMPT,
   ANSWER_PROMPT,
-  NO_PLACE_NOTE,
   OUTSIDE_TA_REPLY,
   MAP_FAILED_NOTE,
   FOCUS_CLEARED_REPLY,
@@ -38,9 +37,15 @@ import {
   conversationText,
   failureReply,
   focusSummary,
+  mapFailedSummary,
   mergeFilters,
+  missingPlaceGeometry,
   placeFromFilters,
   placeSearchFilters,
+  placeTextStep,
+  planPlaceNote,
+  unplannedAreaCode,
+  useStoredPlace,
 } from "../ta5500/planFlow";
 
 const AGENT_ID = "ta5500-plan";
@@ -62,6 +67,7 @@ const answerSchema = z.object({
 
 const last = <T>(fallback: () => T) => Annotation<T>({ reducer: (_prev, next) => next, default: fallback });
 
+/** RAG outage → "failed" with a do-not-retry summary; any other error → ok with a do-not-retry summary (failureReply). */
 function failure(err: unknown) {
   return agentResult(failureReply(err, "ta5500 plan agent"));
 }
@@ -92,7 +98,8 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
       overrideZoneTypes: last<string[]>(() => []),
       place: last<Place | null>(() => null),
       placeGeometry: last<Geometry | null>(() => null),
-      notes: last<string[]>(() => []),
+      placeText: last<string>(() => ""),
+      unplannedArea: last<string | null>(() => null),
       locations: last<PlanLocations | null>(() => null),
       result: last<PlanSearchResult | null>(() => null),
       answer: last<string>(() => ""),
@@ -115,9 +122,14 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
         });
 
         if (r.intent === "clear_focus") {
-          const view = getView();
-          if (view) await resetFocus(view);
-          else focusStore.clear();
+          try {
+            const view = getView();
+            if (view) await resetFocus(view);
+            else focusStore.clear();
+          } catch (err) {
+            console.warn("ta5500 plan agent: clear focus failed:", err);
+            return { done: true, ...agentResult({ output: MAP_FAILED_NOTE, ok: true, summary: mapFailedSummary("clear focus") }) };
+          }
           return {
             done: true,
             ...agentResult({ output: FOCUS_CLEARED_REPLY, ok: true, summary: "focus cleared", sharedStatePatch: { ta5500Focus: { value: null } } }),
@@ -126,24 +138,32 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
 
         const question = r.question.trim() || request;
         const locations = await getPlanLocations(baseUrl);
-        const { filters: validated } = validateRequest(
+        const { filters: validated, dropped } = validateRequest(
           { areas: r.areas, entities: r.entities, zone_types: r.zone_types, headings: r.headings },
           locations,
         );
         const overrides = matchTopicOverrides(question);
-        const notes: string[] = [];
+        const placeText = r.place?.trim() ?? "";
+        const view = getView();
 
+        // Place order: validated filters, then the free-text place (plan code / entity, else the Tel Aviv
+        // geocoder; an area-shaped code not in the plan is never geocoded), then — for refine_focus only — the
+        // stored focus place when the request names no other place.
         let place = placeFromFilters(validated, locations);
         let placeGeometry: Geometry | null = null;
         let extraFilters: PlanFilters = {};
-        const placeText = r.place?.trim() ?? "";
+        let unplannedArea = place ? null : unplannedAreaCode(dropped, locations);
 
         if (place) {
-          const view = getView();
           placeGeometry = view ? await resolvePlaceGeometry(view, place).catch(() => null) : null;
         } else {
-          if (placeText) {
-            const view = getView();
+          const step = placeTextStep(placeText, locations);
+          if (step.kind === "coded") {
+            place = step.place;
+            placeGeometry = view ? await resolvePlaceGeometry(view, place).catch(() => null) : null;
+          } else if (step.kind === "not_in_plan") {
+            unplannedArea = step.code;
+          } else if (step.kind === "geocode") {
             const geo = view ? await geocodeInTelAviv(view, placeText).catch(() => null) : null;
             if (geo && "outside" in geo) {
               return { done: true, ...agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" }) };
@@ -155,13 +175,15 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           }
           if (!place && r.intent === "refine_focus") {
             const stored = focusStore.get()?.place;
-            if (stored) {
+            if (stored && useStoredPlace(placeText, stored)) {
               place = { kind: stored.kind, codes: [...stored.codes], label: stored.label };
               placeGeometry = await storedPlaceGeometry(place);
             }
           }
-          if (place) extraFilters = placeSearchFilters(place, locations);
-          else if (placeText) notes.push(NO_PLACE_NOTE);
+          if (place) {
+            extraFilters = placeSearchFilters(place, locations);
+            unplannedArea = null;
+          }
         }
 
         return {
@@ -171,7 +193,8 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           overrideZoneTypes: overrides.zone_types ?? [],
           place,
           placeGeometry,
-          notes,
+          placeText,
+          unplannedArea,
         };
       } catch (err) {
         return { done: true, ...failure(err) };
@@ -205,7 +228,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
 
     async function focus(s: S) {
       const { place, placeGeometry, locations, result } = s;
-      const notes = [...s.notes];
+      const notes: string[] = [];
       let line = "";
       let shown: LayerKey[] = [];
       let patch: { label: string; layers: LayerKey[] } | null = null;
@@ -215,6 +238,8 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
         if (preview.case !== "none") {
           const view = getView();
           if (!view) throw new Error("map view unavailable");
+          // A place focus needs the place geometry; without it no focus is applied and the map failure is reported.
+          if (missingPlaceGeometry(place, placeGeometry)) throw new Error(`no geometry for ${place!.label}`);
           const { kept, skipped } = candidates.size
             ? await keepLayersWithFeatures(view, candidates, placeGeometry)
             : { kept: candidates, skipped: [] as LayerKey[] };
@@ -237,8 +262,14 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
         }
         line = "";
       }
+      const placeNote = planPlaceNote({
+        placeResolved: !!place,
+        placeText: s.placeText,
+        unplannedArea: s.unplannedArea,
+        focusApplied: !!patch,
+      });
       return agentResult({
-        output: composeOutput(s.answer, line, ...notes),
+        output: composeOutput(s.answer, line, placeNote, ...notes),
         ok: true,
         summary: focusSummary(place, shown),
         ...(patch ? { sharedStatePatch: { ta5500Focus: { value: patch } } } : {}),

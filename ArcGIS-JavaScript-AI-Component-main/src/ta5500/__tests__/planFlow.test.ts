@@ -3,12 +3,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { parseSearchPlanResult, PlanServiceError, PLAN_SERVICE_UNAVAILABLE } from "../ragClient";
-import { REQUEST_FAILED_REPLY } from "../prompts";
+import { REQUEST_FAILED_REPLY, PLAN_NO_PLACE_NOTE, PLAN_NO_PLACE_MAP_UNCHANGED_NOTE } from "../prompts";
 import type { LayerKey } from "../layers";
 import { validateRequest } from "../planLogic";
 import {
   answerContext,
+  areaShapedCode,
   candidateLayers,
+  mapFailedSummary,
+  missingPlaceGeometry,
+  PLAN_SERVICE_DOWN_SUMMARY,
+  planPlaceNote,
+  placeTextStep,
+  REQUEST_FAILED_SUMMARY,
+  unplannedAreaCode,
+  useStoredPlace,
   composeOutput,
   conversationText,
   failureReply,
@@ -97,9 +106,14 @@ test("failureReply: plan-service message, else the generic reply", () => {
   console.warn = () => undefined;
   try {
     const e = new PlanServiceError("down");
-    assert.deepEqual(failureReply(e, "t"), { output: e.message, ok: false });
+    // Only a plan-service outage is "failed", and its summary tells the orchestrator not to retry.
+    assert.deepEqual(failureReply(e, "t"), { output: e.message, ok: false, summary: PLAN_SERVICE_DOWN_SUMMARY });
     assert.equal(e.message, PLAN_SERVICE_UNAVAILABLE);
-    assert.deepEqual(failureReply(new Error("x"), "t"), { output: REQUEST_FAILED_REPLY, ok: false });
+    assert.equal(e.message, "שירות תוכנית המתאר אינו זמין כרגע. נסו שוב בעוד מספר דקות.");
+    assert.match(PLAN_SERVICE_DOWN_SUMMARY, /do not retry/);
+    // Any other error: reported to the user, ok (no re-route to an agent that cannot ground the answer).
+    assert.deepEqual(failureReply(new Error("x"), "t"), { output: REQUEST_FAILED_REPLY, ok: true, summary: REQUEST_FAILED_SUMMARY });
+    assert.match(REQUEST_FAILED_SUMMARY, /do not retry/);
   } finally {
     console.warn = warn;
   }
@@ -186,4 +200,76 @@ test("hide: whole layers only, never outside Tel Aviv, place does not scope it",
   );
   // Whole layer not on the map.
   assert.equal(hideReply({ hidden: [], missing: ["מרחבי תכנון"], partial: [], placeLabel: "רמת אביב" }), "לא נמצאו במפה: מרחבי תכנון.");
+});
+
+test("mapFailedSummary says the map update failed and not to retry", () => {
+  assert.equal(mapFailedSummary("go_to"), "go_to: map update failed; the user was told; do not retry");
+});
+
+test("areaShapedCode: shape only", () => {
+  assert.equal(areaShapedCode("105"), "105");
+  assert.equal(areaShapedCode("999"), "999");
+  assert.equal(areaShapedCode("101ה"), "101ה");
+  assert.equal(areaShapedCode("101-ה"), "101ה");
+  assert.equal(areaShapedCode('"610"'), "610");
+  assert.equal(areaShapedCode("אזור 999"), "999");
+  assert.equal(areaShapedCode("אזור תכנון 105"), "105");
+  assert.equal(areaShapedCode("רמת אביב"), null);
+  assert.equal(areaShapedCode("4.3"), null);
+  assert.equal(areaShapedCode("1050"), null);
+  assert.equal(areaShapedCode("הרצל 105"), null);
+  assert.equal(areaShapedCode(null), null);
+});
+
+test("placeTextStep: plan codes, area codes not in the plan are never geocoded", () => {
+  assert.deepEqual(placeTextStep("105", loc), { kind: "coded", place: { kind: "area", codes: ["105"], label: "אזור 105 – אפקה" } });
+  assert.equal((placeTextStep("אזור 105", loc) as { place: { codes: string[] } }).place.codes[0], "105");
+  assert.deepEqual(placeTextStep("610", loc), { kind: "not_in_plan", code: "610" });
+  assert.deepEqual(placeTextStep("אזור 999", loc), { kind: "not_in_plan", code: "999" });
+  assert.deepEqual(placeTextStep("רמת אביב", loc), { kind: "geocode" });
+  assert.deepEqual(placeTextStep("  ", loc), { kind: "none" });
+  assert.deepEqual(placeTextStep(null, loc), { kind: "none" });
+});
+
+test("unplannedAreaCode: dropped area-shaped values that are not plan areas", () => {
+  assert.equal(unplannedAreaCode(["999"], loc), "999");
+  assert.equal(unplannedAreaCode(validateRequest({ areas: ["999"] }, loc).dropped, loc), "999");
+  assert.equal(unplannedAreaCode(['"610"', "4.3"], loc), "610");
+  assert.equal(unplannedAreaCode(["4.3", "רמת אביב"], loc), null);
+  assert.equal(unplannedAreaCode(["105"], loc), null); // a plan area dropped as an entity is not "not in the plan"
+  assert.equal(unplannedAreaCode([], loc), null);
+});
+
+test("useStoredPlace: only with no place named, or the stored place named again", () => {
+  const stored = { kind: "geocoded" as const, codes: ["102"], label: "רמת אביב" };
+  assert.equal(useStoredPlace("", stored), true);
+  assert.equal(useStoredPlace(null, stored), true);
+  assert.equal(useStoredPlace("רמת אביב", stored), true);
+  assert.equal(useStoredPlace("פלורנטין", stored), false);
+  assert.equal(useStoredPlace("", null), false);
+});
+
+test("planPlaceNote: not-in-plan area, city-wide with or without a map focus", () => {
+  const base = { placeResolved: false, placeText: "", unplannedArea: null, focusApplied: true };
+  assert.equal(planPlaceNote({ ...base, placeResolved: true, placeText: "x", unplannedArea: "999" }), "");
+  assert.equal(planPlaceNote(base), "");
+  assert.equal(planPlaceNote({ ...base, unplannedArea: "999" }), "אזור 999 אינו מופיע בתוכנית.");
+  assert.equal(planPlaceNote({ ...base, placeText: "מקום", unplannedArea: "999" }), "אזור 999 אינו מופיע בתוכנית.");
+  assert.equal(planPlaceNote({ ...base, placeText: "מקום" }), PLAN_NO_PLACE_NOTE);
+  assert.equal(planPlaceNote({ ...base, placeText: "מקום", focusApplied: false }), PLAN_NO_PLACE_MAP_UNCHANGED_NOTE);
+});
+
+test("missingPlaceGeometry", () => {
+  const place = { kind: "area" as const, codes: ["105"], label: "אזור 105" };
+  assert.equal(missingPlaceGeometry(place, null), true);
+  assert.equal(missingPlaceGeometry(place, {}), false);
+  assert.equal(missingPlaceGeometry(null, null), false);
+});
+
+test("mapStep: an area code that is not in the plan is never acted on", () => {
+  const some = new Map<LayerKey, string[]>([["foci", []]]);
+  for (const a of ["go_to", "show", "filter", "hide"] as const) {
+    assert.equal(mapStep(a, { placeText: "610", place: null, layers: some, notInPlan: true }), "not_in_plan");
+  }
+  assert.equal(mapStep("reset", { placeText: "610", place: null, layers: some, notInPlan: true }), "reset");
 });

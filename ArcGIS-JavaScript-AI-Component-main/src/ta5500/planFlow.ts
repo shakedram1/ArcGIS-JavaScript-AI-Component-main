@@ -7,7 +7,16 @@ import { citedSections, layersForSections, validateRequest } from "./planLogic";
 import type { Place } from "./focus";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "./types";
 import { PlanServiceError } from "./ragClient";
-import { REQUEST_FAILED_REPLY, hiddenLine, hidePartialNote, hideWholeMapNote, shownLine } from "./prompts";
+import {
+  REQUEST_FAILED_REPLY,
+  PLAN_NO_PLACE_NOTE,
+  PLAN_NO_PLACE_MAP_UNCHANGED_NOTE,
+  hiddenLine,
+  hidePartialNote,
+  hideWholeMapNote,
+  notInPlanNote,
+  shownLine,
+} from "./prompts";
 
 const FILTER_KEYS: (keyof PlanFilters)[] = ["areas", "entities", "zone_types", "headings"];
 
@@ -130,14 +139,107 @@ export function focusSummary(place: Place | null, layers: LayerKey[]): string {
   return `${place ? place.label : "no place"}; layers: ${layers.length ? layers.join(", ") : "none"}`;
 }
 
-/** Reply for an error that ends a TA5500 agent run: the plan-service message, or a generic failure. */
-export function failureReply(err: unknown, tag: string): { output: string; ok: false } {
+/** Orchestrator summary when the plan service (RAG) is down: status "failed", but no other agent should be tried. */
+export const PLAN_SERVICE_DOWN_SUMMARY =
+  "plan service unavailable; the user was told; no other agent can answer plan questions or act on the plan map; do not retry";
+
+/** Orchestrator summary for any other error that ended the run (status "success" so the orchestrator does not re-route). */
+export const REQUEST_FAILED_SUMMARY =
+  "request failed; the user was told to try again; do not retry with another agent (it cannot give a plan-grounded answer)";
+
+/**
+ * Reply for an error that ends a TA5500 agent run. The 5.1 orchestrator re-routes after a "failed" status, so
+ * only a plan-service outage is "failed" (with a stop hint in the summary); any other error is reported to the
+ * user and returned as ok, so no other agent gives an ungrounded answer.
+ */
+export function failureReply(err: unknown, tag: string): { output: string; ok: boolean; summary: string } {
   if (err instanceof PlanServiceError) {
     console.warn(`${tag} plan service:`, err.detail ?? err.message);
-    return { output: err.message, ok: false };
+    return { output: err.message, ok: false, summary: PLAN_SERVICE_DOWN_SUMMARY };
   }
   console.warn(`${tag}:`, err);
-  return { output: REQUEST_FAILED_REPLY, ok: false };
+  return { output: REQUEST_FAILED_REPLY, ok: true, summary: REQUEST_FAILED_SUMMARY };
+}
+
+/** Orchestrator summary for a map update that failed (status "success": the user was told, no agent should retry). */
+export function mapFailedSummary(what: string): string {
+  return `${what}: map update failed; the user was told; do not retry`;
+}
+
+// ---------- Place resolution (both agents) ----------
+
+const AREA_SHAPE = /^\d{3}[א-ת]?$/;
+
+/**
+ * The planning-area code a place text is written as ("105", "101ה", "אזור 105", "101-ה", "'999'"), or null when
+ * the text is not shaped like an area code. Shape only: the code may not be in the plan.
+ */
+export function areaShapedCode(text: string | null | undefined): string | null {
+  const s = (text ?? "").trim().replace(/^אזור(?:\s+תכנון)?\s*/, "").replace(/[\s'"׳״`\-־]/g, "");
+  return AREA_SHAPE.test(s) ? s : null;
+}
+
+export type PlaceTextStep =
+  | { kind: "none" }
+  | { kind: "coded"; place: Place }
+  | { kind: "not_in_plan"; code: string }
+  | { kind: "geocode" };
+
+/**
+ * How a free-text place is resolved: a plan code or entity (coded); an area-shaped code that is not in the plan
+ * (not_in_plan — never sent to the geocoder, which could match an unrelated address); otherwise the Tel Aviv
+ * geocoder (geocode).
+ */
+export function placeTextStep(text: string | null | undefined, loc: PlanLocations): PlaceTextStep {
+  const t = (text ?? "").trim();
+  if (!t) return { kind: "none" };
+  const area = areaShapedCode(t);
+  const place = placeFromText(t, loc) ?? (area ? placeFromText(area, loc) : null);
+  if (place) return { kind: "coded", place };
+  if (area) return { kind: "not_in_plan", code: area };
+  return { kind: "geocode" };
+}
+
+/** The first value dropped by validateRequest that is shaped like an area code and is not a plan area. */
+export function unplannedAreaCode(dropped: string[], loc: PlanLocations): string | null {
+  const known = new Set([...loc.areas.map((a) => a.code), ...loc.subareas.map((s) => s.code)]);
+  for (const v of dropped) {
+    const code = areaShapedCode(v);
+    if (code && !known.has(code)) return code;
+  }
+  return null;
+}
+
+/**
+ * refine_focus: reuse the stored focus place only when the request names no place, or names the stored place
+ * (its label contains the text). A different place that did not resolve is not replaced by the stored one.
+ */
+export function useStoredPlace(placeText: string | null | undefined, stored: Place | null | undefined): boolean {
+  if (!stored) return false;
+  const t = (placeText ?? "").trim();
+  return !t || stored.label.includes(t);
+}
+
+/**
+ * Plan agent note about the place (empty when a place resolved or none was named):
+ * an area code that is not in the plan → notInPlanNote; a named place that was not identified → the city-wide
+ * note, saying whether the map shows a (city-wide) focus or was left unchanged.
+ */
+export function planPlaceNote(p: {
+  placeResolved: boolean;
+  placeText: string | null | undefined;
+  unplannedArea: string | null;
+  focusApplied: boolean;
+}): string {
+  if (p.placeResolved) return "";
+  if (p.unplannedArea) return notInPlanNote(p.unplannedArea);
+  if (!(p.placeText ?? "").trim()) return "";
+  return p.focusApplied ? PLAN_NO_PLACE_NOTE : PLAN_NO_PLACE_MAP_UNCHANGED_NOTE;
+}
+
+/** A place resolved but its geometry did not: no place focus is applied (the map update is reported as failed). */
+export function missingPlaceGeometry(place: Place | null, geometry: unknown | null): boolean {
+  return !!place && !geometry;
 }
 
 // ---------- Map agent (spec §5.2, §5.5) ----------
@@ -174,12 +276,13 @@ export function topicLayers(topic: string | null | undefined, loc: PlanLocations
 }
 
 export type MapAction = "go_to" | "show" | "hide" | "filter" | "reset";
-export type MapStep = "reset" | "outside" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
+export type MapStep = "reset" | "outside" | "not_in_plan" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
 
 /**
  * What the Map agent does (never acts on things not in the plan):
  * - reset → reset;
  * - a named place outside Tel Aviv-Yafo (every action but reset) → outside (OUTSIDE_TA_REPLY, map unchanged);
+ * - a named area code that is not in the plan (every action but reset) → not_in_plan (notInPlanNote, map unchanged);
  * - go_to → go to the resolved place, or no_place;
  * - show / filter / hide → no_place when a place was named but not resolved (the map stays unchanged);
  * - hide → hide the layers named as a whole (hideTargets); hide_partial when the topic only names types inside
@@ -188,10 +291,17 @@ export type MapStep = "reset" | "outside" | "go_to" | "focus" | "hide" | "hide_p
  */
 export function mapStep(
   action: MapAction,
-  s: { placeText: string | null | undefined; place: Place | null; layers: Map<LayerKey, string[]>; outside?: boolean },
+  s: {
+    placeText: string | null | undefined;
+    place: Place | null;
+    layers: Map<LayerKey, string[]>;
+    outside?: boolean;
+    notInPlan?: boolean;
+  },
 ): MapStep {
   if (action === "reset") return "reset";
   if (s.outside) return "outside";
+  if (s.notInPlan) return "not_in_plan";
   if (action === "go_to") return s.place ? "go_to" : "no_place";
   if ((s.placeText ?? "").trim() && !s.place) return "no_place";
   if (action === "hide") {

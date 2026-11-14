@@ -35,6 +35,7 @@ import {
   FOCUS_CLEARED_REPLY,
   HIDE_PARTIAL_REPLY,
   goToLine,
+  notInPlanNote,
   shownLine,
 } from "../ta5500/prompts";
 import {
@@ -44,8 +45,10 @@ import {
   focusSummary,
   hideReply,
   hideTargets,
+  mapFailedSummary,
   mapStep,
-  placeFromText,
+  missingPlaceGeometry,
+  placeTextStep,
   topicLayers,
 } from "../ta5500/planFlow";
 
@@ -69,19 +72,24 @@ const isSuperseded = (err: unknown) => err instanceof FocusSupersededError || (e
 function mapFailed(err: unknown, summary: string) {
   if (isSuperseded(err)) return agentResult({ output: MAP_SUPERSEDED_REPLY, ok: true, summary: `${summary}: superseded` });
   console.warn(`${TAG}: map update failed:`, err);
-  // The map change is the whole point of the turn, so a failed map update fails the run.
-  return agentResult({ output: MAP_FAILED_NOTE, ok: false, summary: `${summary}: map update failed` });
+  // Reported to the user; status "success" so the 5.1 orchestrator does not re-route to another agent
+  // (it re-routes after "failed"), and the summary says the map update failed.
+  return agentResult({ output: MAP_FAILED_NOTE, ok: true, summary: mapFailedSummary(summary) });
 }
 
-type Resolved = { place: Place | null; geometry: Geometry | null } | { outside: true };
+type Resolved = { place: Place | null; geometry: Geometry | null } | { outside: true } | { notInPlan: string };
 
-/** Same order as the Plan agent: plan codes / entities first, then the Tel Aviv geocoder. Geocoder errors → no place. */
+/**
+ * Same order as the Plan agent (planFlow.placeTextStep): plan codes / entities first; an area-shaped code that is
+ * not in the plan → notInPlan (never geocoded); then the Tel Aviv geocoder. Geocoder errors → no place.
+ */
 async function resolvePlace(view: MapView | null, text: string, loc: PlanLocations): Promise<Resolved> {
-  if (!text) return { place: null, geometry: null };
-  const coded = placeFromText(text, loc);
-  if (coded) {
-    const geometry = view ? await resolvePlaceGeometry(view, coded).catch(() => null) : null;
-    return { place: coded, geometry };
+  const step = placeTextStep(text, loc);
+  if (step.kind === "none") return { place: null, geometry: null };
+  if (step.kind === "not_in_plan") return { notInPlan: step.code };
+  if (step.kind === "coded") {
+    const geometry = view ? await resolvePlaceGeometry(view, step.place).catch(() => null) : null;
+    return { place: step.place, geometry };
   }
   if (!view) return { place: null, geometry: null };
   const geo = await geocodeInTelAviv(view, text).catch((err) => {
@@ -140,16 +148,20 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
       let place: Place | null = null;
       let geometry: Geometry | null = null;
       let outside = false;
+      let notInPlan: string | null = null;
       if (placeText) {
         const resolved = await resolvePlace(view, placeText, loc);
         if ("outside" in resolved) outside = true;
+        else if ("notInPlan" in resolved) notInPlan = resolved.notInPlan;
         else ({ place, geometry } = resolved);
       }
 
-      const step = mapStep(r.action, { placeText, place, layers, outside });
+      const step = mapStep(r.action, { placeText, place, layers, outside, notInPlan: !!notInPlan });
       switch (step) {
         case "outside":
           return agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" });
+        case "not_in_plan":
+          return agentResult({ output: notInPlanNote(notInPlan!), ok: true, summary: `${r.action}: area ${notInPlan} not in the plan` });
         case "no_place":
           return agentResult({ output: NO_PLACE_NOTE, ok: true, summary: `${r.action}: place not resolved` });
         case "no_topic":
@@ -198,6 +210,8 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
           let applied: FocusState | null = null;
           try {
             if (!view) throw new Error("map view unavailable");
+            // A place focus needs the place geometry; without it no focus is applied and the failure is reported.
+            if (missingPlaceGeometry(place, geometry)) throw new Error(`no geometry for ${place!.label}`);
             const { kept, skipped } = layers.size
               ? await keepLayersWithFeatures(view, layers, geometry)
               : { kept: layers, skipped: [] as LayerKey[] };
