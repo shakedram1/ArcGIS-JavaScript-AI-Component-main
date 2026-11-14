@@ -33,7 +33,10 @@ export class FocusSupersededError extends Error {
 }
 
 let callToken = 0;
-// Each layer's own featureEffect as first seen by this module, restored on reset (by uid).
+// Each TA5500 layer's web-map-authored featureEffect (a clone, by uid), recorded the first time the layer is
+// seen — when TA5500 mode starts (rememberAuthoredEffects from useTa5500Mode), else before the first restore —
+// and never overwritten. Reset restores it, so effects set later (a plan focus, the data-exploration agent)
+// are cleared while the author's own effect survives (spec §5.4).
 const originalEffects = new Map<string, FeatureEffect | null>();
 // Start loading the projection engine early so telAvivExtent (sync) can project.
 void projectOperator.load().catch(() => undefined);
@@ -142,14 +145,18 @@ export async function geocodeInTelAviv(
   if (!c?.location) return null;
   const loc = await toViewSR(view, c.location);
   if (!loc || !isInsideExtent(loc, ta)) return { outside: true };
-  // Candidate extent (or ~250 m around the point when the geocoder gives none).
+  const areas = listTa5500Layers(view).get("areas")?.[0];
+  const field = areas ? codeFieldOf(areas) : null;
+  if (!areas || !field) return null;
+  // The bounding box of the planning areas also covers neighbours (Ramat Gan, Givatayim, north Holon / Bat Yam):
+  // the geocoded point itself must fall in a planning-area polygon. Applies to both geocode paths above.
+  const inside = await areas.queryFeatureCount({ geometry: loc, spatialRelationship: "intersects" });
+  if (inside === 0) return { outside: true };
+  // Candidate extent (or ~250 m around the point when the geocoder gives none); only used to collect area codes.
   const raw = c.extent ? await toViewSR(view, c.extent) : null;
   const geometry =
     raw ??
     new Extent({ xmin: loc.x - 250, ymin: loc.y - 250, xmax: loc.x + 250, ymax: loc.y + 250, spatialReference: view.spatialReference });
-  const areas = listTa5500Layers(view).get("areas")?.[0];
-  const field = areas ? codeFieldOf(areas) : null;
-  if (!areas || !field) return null;
   const res = await areas.queryFeatures({ geometry, spatialRelationship: "intersects", outFields: [field.name], returnGeometry: false });
   const codes = [...new Set(res.features.map((f) => f.attributes?.[field.name]).filter((v) => v != null).map(String))];
   if (codes.length === 0) return { outside: true };
@@ -186,8 +193,16 @@ export async function keepLayersWithFeatures(
   return { kept: ordered, skipped: [...layers.keys()].filter((k) => skipped.includes(k)) };
 }
 
+/** Record the authored featureEffect of TA5500 layers not seen before. Call before anything changes their effects. */
+export function rememberAuthoredEffects(view: MapView): void {
+  for (const layer of [...listTa5500Layers(view).values()].flat()) {
+    if (!originalEffects.has(layer.uid)) originalEffects.set(layer.uid, layer.featureEffect?.clone() ?? null);
+  }
+}
+
 /** Synchronously undo whatever a focus (or another agent's filter/effect) did to the map. */
 function restoreMap(view: MapView, prev: FocusState | null): void {
+  rememberAuthoredEffects(view);
   const all = view.map?.allLayers;
   for (const [uid, visible] of Object.entries(prev?.previousVisibility ?? {})) {
     const layer = all?.find((l) => l.uid === uid);
@@ -216,8 +231,11 @@ export async function applyFocus(
   const empty: FocusState = { place: null, geometryJson: null, layers: [], previousVisibility: {}, label: focusLabel(null, []) };
   if (plan.case === "none") return focusStore.get() ?? empty; // spec §5.3 4.4: map unchanged
   const token = ++callToken;
-  const usePlace = plan.case !== "topic_only"; // place cases use layerView.filter even if the geometry is missing
+  const usePlace = plan.case !== "topic_only";
   const geom = usePlace && geometry ? await toViewSR(view, geometry as GeometryUnion) : null;
+  // A place focus is always clipped to the place geometry: without it (not resolved / not projected) nothing is
+  // applied, rather than filtering by codes alone. Callers check first and report the map update as failed.
+  if (usePlace && !geom) throw new Error("ta5500 focus: no place geometry");
 
   // Async preparation: layer views, where clauses, target extent. Nothing on the map changes here.
   const all = listTa5500Layers(view);
@@ -249,9 +267,6 @@ export async function applyFocus(
   const previousVisibility: Record<string, boolean> = {};
   const keptUids = new Set(targets.map((t) => t.layer.uid));
   for (const layer of featureLayers(view)) {
-    if (!originalEffects.has(layer.uid) && keptUids.has(layer.uid)) {
-      originalEffects.set(layer.uid, layer.featureEffect?.clone() ?? null);
-    }
     const want = keptUids.has(layer.uid);
     if (layer.visible !== want && (want || layer.visible)) {
       previousVisibility[layer.uid] = layer.visible;

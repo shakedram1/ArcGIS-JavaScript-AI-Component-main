@@ -3,7 +3,8 @@ import type MapView from "@arcgis/core/views/MapView.js";
 import type Extent from "@arcgis/core/geometry/Extent.js";
 import type Polygon from "@arcgis/core/geometry/Polygon.js";
 import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
-import { getView, listTa5500Layers, telAvivExtent } from "../ta5500/mapFocus";
+import { getView, listTa5500Layers, rememberAuthoredEffects, telAvivExtent } from "../ta5500/mapFocus";
+import { focusStore } from "../ta5500/focus";
 
 const EXTENT_EXPAND = 1.3;
 
@@ -12,6 +13,8 @@ const EXTENT_EXPAND = 1.3;
  * planning-areas layer. While true, lateral navigation is constrained to the
  * Tel Aviv-Yafo extent (layer union, expanded) as a backstop; the previous
  * constraint is restored when the mode ends, the map changes or on unmount.
+ * When the mode ends or the map changes, the plan focus store is cleared (the old view's outline layer goes
+ * with the old map; resetFocus is not called on a view that may already be destroyed).
  */
 export function useTa5500Mode(isMapReady: boolean, webMapId: string): boolean {
   const [isTa5500, setIsTa5500] = useState(false);
@@ -36,6 +39,8 @@ export function useTa5500Mode(isMapReady: boolean, webMapId: string): boolean {
 
       const areas = listTa5500Layers(view).get("areas") ?? [];
       if (!areas.length) return;
+      // Before any agent touches the layers: keep the web map's own featureEffects for reset (mapFocus).
+      rememberAuthoredEffects(view);
       setIsTa5500(true);
 
       // fullExtent needs the layers loaded; projection may be needed if the
@@ -57,6 +62,7 @@ export function useTa5500Mode(isMapReady: boolean, webMapId: string): boolean {
 
     return () => {
       cancelled = true;
+      focusStore.clear();
       const view = constrainedView;
       if (view && !view.destroyed) {
         view.constraints.geometry = previousGeometry;

@@ -173,7 +173,7 @@ export function AssistantPanel({
                     </calcite-notice>
                   )}
 
-                  <FocusChip />
+                  {isTa5500 && <FocusChip />}
 
                   {shouldRenderAssistant && (
                     <arcgis-assistant
