@@ -7,7 +7,7 @@
 // ---------- Router descriptions (spec §5.2) ----------
 
 export const PLAN_AGENT_DESCRIPTION =
-  `Answers questions about the Tel Aviv master plan תא/5500 (תוכנית המתאר) from the plan document: what the plan allows, requires or designates — building rights, רח"ק, heights, land uses, zone types (אזורי ייעוד), planning areas (אזור תכנון, e.g. 610, 703, 101ה), streets with special provisions, table 5.4, clauses (סעיף 3.3.2), development policy (פיתוח, תעסוקה, מגורים, מוסדות ציבור, שטחים פתוחים). It always shows the answer on the map: focuses on the named place and highlights the relevant plan layers. While a plan focus is active it also changes what is shown in it and clears it (נקה מיקוד). Use for: 'מה מותר לבנות באזור 610?', 'מה תוכנית הפיתוח העסקי ברמת אביב?', 'מה אומר סעיף 4.3?', 'ומה לגבי מגורים שם?'. Do NOT use for map actions that do not ask what the plan says (navigate, show/hide layers, count features).`;
+  `Answers questions about the Tel Aviv master plan תא/5500 (תוכנית המתאר) from the plan document: what the plan allows, requires or designates — building rights, רח"ק, heights, land uses, zone types (אזורי ייעוד), planning areas (אזור תכנון, e.g. 105, 703, 101ה), streets with special provisions, table 5.4, clauses (סעיף 3.3.2), development policy (פיתוח, תעסוקה, מגורים, מוסדות ציבור, שטחים פתוחים). It always shows the answer on the map: focuses on the named place and highlights the relevant plan layers. While a plan focus is active it also changes what is shown in it and clears it (נקה מיקוד). Use for: 'מה מותר לבנות באזור 105?', 'מה תוכנית הפיתוח העסקי ברמת אביב?', 'מה אומר סעיף 4.3?', 'ומה לגבי מגורים שם?'. Do NOT use for map actions that do not ask what the plan says (navigate, show/hide layers, count features).`;
 
 export const MAP_AGENT_DESCRIPTION =
   `Performs map actions on the Tel Aviv-Yafo master plan map: go to a planning area, sub-area, street, neighborhood or address in Tel Aviv-Yafo; show, hide or filter the plan layers (zone types, development foci, planning areas, special streets); reset the map. Use for: 'תתמקד על אזור 703', 'קח אותי לרמת אביב', 'הצג רק אזורי מגורים', 'תסתיר את שכבת המוקדים', 'אפס את המפה'. Do NOT use for questions about what the plan says or allows (Plan agent), counts or statistics (data exploration), or places outside Tel Aviv-Yafo.`;
@@ -31,8 +31,8 @@ The plan focus currently shown on the map (or "none"):
 {currentFocus}
 
 Produce:
-1. question: one standalone question in Hebrew that can be understood without the conversation. Resolve references such as "שם", "זה", "באזור הזה", "ומה לגבי" from the earlier messages and from the current focus (for example, if the focus is planning area 610 and the request is "ומה לגבי מגורים שם?", write "מה קובעת התוכנית לגבי מגורים באזור 610?"). Keep the user's meaning; do not add topics.
-2. areas: planning area codes (אזור תכנון) written in the request or the resolved question, exactly as written (for example "610", "703", "101ה"). Empty if none.
+1. question: one standalone question in Hebrew that can be understood without the conversation. Resolve references such as "שם", "זה", "באזור הזה", "ומה לגבי" from the earlier messages and from the current focus (for example, if the focus is planning area 105 and the request is "ומה לגבי מגורים שם?", write "מה קובעת התוכנית לגבי מגורים באזור 105?"). Keep the user's meaning; do not add topics.
+2. areas: planning area codes (אזור תכנון) written in the request or the resolved question, exactly as written (for example "105", "703", "101ה"). Empty if none.
 3. entities: other plan codes or named plan entities written there (sub-areas, special streets, development foci), exactly as written. Empty if none.
 4. zone_types: zone type ids (אזורי ייעוד, for example "3.3.2") only when written explicitly. Empty if none.
 5. headings: plan section or clause numbers (סעיף, for example "4.3") or "5.4" for table 5.4, only when written explicitly. Empty if none.
@@ -86,7 +86,7 @@ Produce:
    - "hide": hide plan layers or plan topics (for example "תסתיר את שכבת המוקדים").
    - "filter": show only part of a layer (for example "הצג רק אזורי מגורים").
    - "reset": clear the focus and restore the map (for example "אפס את המפה", "נקה מיקוד").
-2. place: the place the action applies to, as written: a planning area code (for example "610", "101ה"), a sub-area, a street, a neighborhood or an address. Resolve "שם" or "באזור הזה" from the earlier messages or the current focus. Null if no place is involved.
+2. place: the place the action applies to, as written: a planning area code (for example "105", "101ה"), a sub-area, a street, a neighborhood or an address. Resolve "שם" or "באזור הזה" from the earlier messages or the current focus. Null if no place is involved.
 3. topic: the plan layer or plan concept the action applies to, in the user's words (for example "אזורי תעסוקה", "מוקדים", "רחובות מיוחדים"). Null if none.
 
 Rules:
@@ -96,9 +96,21 @@ Rules:
 // ---------- User-facing Hebrew copy ----------
 
 export const SCOPE_REPLY =
-  'כאן אפשר לקבל מידע רק על תוכנית המתאר תא/5500 ועל מפת תל אביב-יפו. אפשר לשאול למשל: "מה מותר לבנות באזור 610?" או "הצג את אזורי התעסוקה ברמת אביב".';
+  'כאן אפשר לקבל מידע רק על תוכנית המתאר תא/5500 ועל מפת תל אביב-יפו. אפשר לשאול למשל: "מה מותר לבנות באזור 105?" או "הצג את אזורי התעסוקה ברמת אביב".';
 
+/** Map agent: a named place that was not identified (the map is unchanged). */
 export const NO_PLACE_NOTE = "לא זיהיתי את המקום שציינת, ולכן המפה לא שונתה.";
+
+/** Plan agent: a named place that was not identified; the answer and the map focus are city-wide. */
+export const PLAN_NO_PLACE_NOTE = "לא זיהיתי את המקום שציינת, ולכן התשובה והמפה מתייחסות לכל העיר.";
+
+/** Plan agent: a named place that was not identified; the answer is city-wide and the map was not changed. */
+export const PLAN_NO_PLACE_MAP_UNCHANGED_NOTE = "לא זיהיתי את המקום שציינת, ולכן התשובה מתייחסת לכל העיר והמפה לא שונתה.";
+
+/** A planning-area code that is not in the plan: notInPlanNote("999") → "אזור 999 אינו מופיע בתוכנית." */
+export function notInPlanNote(code: string): string {
+  return `אזור ${code} אינו מופיע בתוכנית.`;
+}
 
 export const OUTSIDE_TA_REPLY = "המקום שציינת נמצא מחוץ לתל אביב-יפו, וכאן אפשר לקבל מידע רק על תוכנית המתאר של העיר.";
 
@@ -131,7 +143,7 @@ export function hideWholeMapNote(placeLabel: string): string {
   return `ההסתרה חלה על כל המפה, ולא רק על ${placeLabel}.`;
 }
 
-/** Map agent, go_to: goToLine("אזור 610") → "המפה הועברה אל אזור 610." */
+/** Map agent, go_to: goToLine("אזור 105") → "המפה הועברה אל אזור 105." */
 export function goToLine(placeLabel: string): string {
   return `המפה הועברה אל ${placeLabel}.`;
 }
@@ -142,14 +154,23 @@ export function hiddenLine(layerLabels: string[]): string {
 }
 
 /**
+ * "ב" + a place label; a label that starts with the definite article "ה" drops it, as in Hebrew
+ * ("הקריה" → "בקריה", "אזור 105" → "באזור 105").
+ */
+export function inPlace(placeLabel: string): string {
+  return placeLabel.startsWith("ה") ? `ב${placeLabel.slice(1)}` : `ב${placeLabel}`;
+}
+
+/**
  * The line added to a reply saying what the map shows (spec §5.3 step 4.5).
- * shownLine("אזור 610", ["אזורי ייעוד"], ["תעסוקה"]) → "מוצגים באזור 610: אזורי ייעוד. לא נמצאו באזור: תעסוקה."
+ * shownLine("אזור 105", ["אזורי ייעוד"], ["תעסוקה"]) → "מוצגים באזור 105: אזורי ייעוד. לא נמצאו באזור: תעסוקה."
+ * shownLine("הקריה", ["אזורי ייעוד"], []) → "מוצגים בקריה: אזורי ייעוד."
  * shownLine(null, ["מוקדים"], []) → "מוצגים במפה: מוקדים."
  * With nothing shown, only the skipped sentence is returned; with neither, "".
  */
 export function shownLine(placeLabel: string | null, layerLabels: string[], skipped: string[]): string {
   const parts: string[] = [];
-  if (layerLabels.length > 0) parts.push(`מוצגים ${placeLabel ? `ב${placeLabel}` : "במפה"}: ${layerLabels.join(", ")}.`);
+  if (layerLabels.length > 0) parts.push(`מוצגים ${placeLabel ? inPlace(placeLabel) : "במפה"}: ${layerLabels.join(", ")}.`);
   if (skipped.length > 0) parts.push(`לא נמצאו ${placeLabel ? "באזור" : "במפה"}: ${skipped.join(", ")}.`);
   return parts.join(" ");
 }

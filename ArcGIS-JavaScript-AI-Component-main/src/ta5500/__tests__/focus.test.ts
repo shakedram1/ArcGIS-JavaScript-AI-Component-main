@@ -4,7 +4,7 @@ import { buildCodeWhere, focusLabel, focusStore, planFocus } from "../focus";
 import type { FocusState, Place } from "../focus";
 import type { LayerKey } from "../layers";
 
-const area: Place = { kind: "area", codes: ["610"], label: "אזור 610" };
+const area: Place = { kind: "area", codes: ["105"], label: "אזור 105" };
 
 test("planFocus cases", () => {
   const cands = new Map<LayerKey, string[]>([["zones", ["332"]]]);
@@ -51,7 +51,7 @@ test("focusStore", () => {
 });
 
 test("focusLabel", () => {
-  assert.equal(focusLabel(area, []), "מיקוד: אזור 610");
+  assert.equal(focusLabel(area, []), "מיקוד: אזור 105");
   assert.equal(focusLabel(null, ["אזורי תעסוקה"]), "מיקוד: אזורי תעסוקה");
   assert.equal(focusLabel(null, ["a", "b"]), "מיקוד: a, b");
   assert.equal(focusLabel(null, []), "מיקוד");

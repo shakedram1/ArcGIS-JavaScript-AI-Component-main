@@ -25,8 +25,8 @@ test("finds layers by key, using layerId when url has no trailing id", () => {
 });
 
 test("topic overrides", () => {
-  assert.deepEqual(matchTopicOverrides("מה תוכנית הפיתוח העסקי באזור 610?"), { zone_types: ["3.3", "3.4.1"] });
-  assert.deepEqual(matchTopicOverrides("מה מותר לבנות באזור 610?"), {});
+  assert.deepEqual(matchTopicOverrides("מה תוכנית הפיתוח העסקי באזור 105?"), { zone_types: ["3.3", "3.4.1"] });
+  assert.deepEqual(matchTopicOverrides("מה מותר לבנות באזור 105?"), {});
   assert.deepEqual(matchTopicOverrides("ובמסחר"), { zone_types: ["3.3", "3.4.1"] });
   assert.deepEqual(matchTopicOverrides(""), {});
   assert.deepEqual(matchTopicOverrides("אנשי מסחרים"), {});
