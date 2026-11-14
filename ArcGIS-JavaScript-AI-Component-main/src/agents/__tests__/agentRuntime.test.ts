@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Annotation, StateGraph, START, END } from "@langchain/langgraph/web";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import { agentRuntimeChannels, agentResult, readAgentRequest } from "../agentRuntime";
+import { agentRuntimeChannels, agentResult, readAgentRequest, seedAgentMessages } from "../agentRuntime";
 
 test("graph node sees the 5.1 request", async () => {
   const State = Annotation.Root({ ...agentRuntimeChannels() });
@@ -35,4 +35,25 @@ test("agentResult failed", () => {
   const r = agentResult({ output: "x", ok: false });
   assert.equal(r.status, "failed");
   assert.equal(r.summary, "x");
+});
+
+test("seedAgentMessages adds the request to an empty history", () => {
+  const seeded = seedAgentMessages([], "אילו נקודות תשתית מתוכננות בנאות אפקה?");
+  assert.equal(seeded.length, 1);
+  assert.equal(seeded[0]._getType(), "human");
+  assert.equal(seeded[0].content, "אילו נקודות תשתית מתוכננות בנאות אפקה?");
+});
+
+test("seedAgentMessages keeps history that already ends with the request", () => {
+  const history = [new HumanMessage("a"), new AIMessage("b"), new HumanMessage("q")];
+  const seeded = seedAgentMessages(history, "q");
+  assert.deepEqual(seeded, history);
+});
+
+test("seedAgentMessages appends the request when the last human message differs", () => {
+  const history = [new HumanMessage("q"), new AIMessage("b")];
+  const seeded = seedAgentMessages(history, "assigned task");
+  assert.equal(seeded.length, 3);
+  assert.equal(seeded[2].content, "assigned task");
+  assert.equal(seedAgentMessages(history, "").length, 2);
 });

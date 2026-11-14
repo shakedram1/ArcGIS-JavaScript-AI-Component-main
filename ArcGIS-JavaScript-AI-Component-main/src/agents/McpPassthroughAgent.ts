@@ -1,12 +1,13 @@
 import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
-import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { z } from "zod";
 import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, normalizeUrl, prioritizeRequestedGeoFocus, resolveHubServersUrl, type McpToolDef } from "./mcpAgentCore";
 import { inputSchemaToZod, normalizeToolArgsForCall, truncateDescription } from "../utils/mcpZodSchema";
 import { clearMcpGeoLayer, renderMcpGeoEntities, type GeoEntity } from "../utils/mcpGeoRenderer";
 import { setLastAssistantGeoSnapshot } from "../utils/assistantState";
+import { agentRuntimeChannels, agentResult, readAgentRequest, seedAgentMessages } from "./agentRuntime";
 import { normalizeMessages, contentToText, getLastAiMessage, isAiMessageLike, isToolMessageLike, hasToolCalls, extractMessageText } from "../utils/agentHelpers";
 
 export interface McpPassthroughAgentContext {
@@ -25,7 +26,7 @@ interface HubServerSummary {
 }
 
 let latestGeoRenderToken = 0;
-let pendingGeoRenderTimer: number | null = null;
+let pendingGeoRenderTimer: ReturnType<typeof setTimeout> | null = null;
 let latestMcpRunToken = 0;
 const cancelBoundAssistants = new WeakSet<HTMLElement>();
 const activeMcpAbortControllers = new Set<AbortController>();
@@ -602,38 +603,35 @@ export function registerMcpPassthroughAgent(
   const agentId = "mcp-passthrough-agent";
 
   const createGraph = () => {
-    const state = ANNOTATION.Root({
-      messages: ANNOTATION({
+    const state = Annotation.Root({
+      ...agentRuntimeChannels(),
+      // Own message loop (history + AI tool calls + tool results). In 5.1 the
+      // orchestrator passes only agentExecutionContext, so agentNode seeds this
+      // channel from it on the first pass.
+      messages: Annotation({
         reducer: (current: any[] = [], update: any) => {
           const next = Array.isArray(update) ? update : [update];
           return [...current, ...next.filter(Boolean)];
         },
         default: () => [],
       }),
-      outputMessage: ANNOTATION({
-        reducer: (current: string = "", update: any) => {
-          if (typeof update !== "string" || !update.trim()) return current;
-          return current ? `${current}\n\n${update}` : update;
-        },
-        default: () => "",
-      }),
-      toolAliasMap: ANNOTATION({
+      toolAliasMap: Annotation({
         reducer: (current: ToolAliasMap = {}, update: ToolAliasMap | undefined) => ({ ...current, ...(update ?? {}) }),
         default: () => ({}),
       }),
-      toolCallArgsList: ANNOTATION({
+      toolCallArgsList: Annotation({
         reducer: (_current: Record<string, unknown>[] = [], update: Record<string, unknown>[] | undefined) => update ?? [],
         default: () => [],
       }),
-      toolOutputTextList: ANNOTATION({
+      toolOutputTextList: Annotation({
         reducer: (_current: string[] = [], update: string[] | undefined) => update ?? [],
         default: () => [],
       }),
-      canceled: ANNOTATION({
+      canceled: Annotation({
         reducer: (_current: boolean = false, update: boolean | undefined) => Boolean(update),
         default: () => false,
       }),
-      toolRoundCount: ANNOTATION({
+      toolRoundCount: Annotation({
         reducer: (_current: number = 0, update: number | undefined) => update ?? 0,
         default: () => 0,
       }),
@@ -642,11 +640,15 @@ export function registerMcpPassthroughAgent(
     async function agentNode(agentState: any) {
       const runToken = latestMcpRunToken;
       try {
-        const messages = normalizeMessages(agentState?.messages);
+        const request = readAgentRequest(agentState);
+        const ownMessages = normalizeMessages(agentState?.messages);
+        // First pass: the own loop is empty — seed it from the 5.1 run context.
+        const seedMessages = ownMessages.length ? [] : seedAgentMessages(request.messages, request.request);
+        const messages = ownMessages.length ? ownMessages : seedMessages;
         const promptMessages = sanitizeMessagesForPrompt(messages);
         const serverLabel = ctx.serverName || "MCP";
         const resolvedUrl = ctx.baseUrl || "";
-        const userText = extractLastHumanMessageText(messages);
+        const userText = request.request || extractLastHumanMessageText(messages);
 
         let mcpToolDefs: McpToolDef[] = [];
         let discoveryError: string | null = null;
@@ -664,9 +666,12 @@ export function registerMcpPassthroughAgent(
 
         if (discoveryError || !mcpToolDefs.length) {
           return {
-            outputMessage: discoveryError
-              ? `Could not connect to the ${serverLabel}: ${discoveryError}`
-              : `The ${serverLabel} did not expose any tools.`,
+            ...agentResult({
+              output: discoveryError
+                ? `Could not connect to the ${serverLabel}: ${discoveryError}`
+                : `The ${serverLabel} did not expose any tools.`,
+              ok: false,
+            }),
             messages: [],
           };
         }
@@ -706,7 +711,7 @@ export function registerMcpPassthroughAgent(
         }
 
         return {
-          messages: [response],
+          messages: [...seedMessages, response],
           toolAliasMap: aliasMap,
           canceled: false,
           toolRoundCount: priorToolRounds,
@@ -716,7 +721,10 @@ export function registerMcpPassthroughAgent(
           return { messages: [], outputMessage: "", canceled: true };
         }
         return {
-          outputMessage: `MCP agent failed to process the request: ${err?.message ?? "Unknown error."}`,
+          ...agentResult({
+            output: `MCP agent failed to process the request: ${err?.message ?? "Unknown error."}`,
+            ok: false,
+          }),
           messages: [],
         };
       }
@@ -802,13 +810,19 @@ export function registerMcpPassthroughAgent(
 
     function respondNode(agentState: any) {
       if (agentState?.canceled) {
-        return { outputMessage: "" };
+        return agentResult({ output: "", summary: "Canceled.", ok: false });
+      }
+      // agentNode already reported a failure (discovery error / exception) via
+      // agentResult; keep that result instead of appending a generic fallback.
+      if (agentState?.status === "failed") {
+        return {};
       }
 
       const messages = normalizeMessages(agentState?.messages);
-      const userText = extractLastHumanMessageText(messages);
+      const userText = readAgentRequest(agentState).request || extractLastHumanMessageText(messages);
       const lastAiMessage = getLastAiMessage(messages);
-      const text = contentToText(lastAiMessage?.content) || `The ${ctx.serverName || "MCP"} server did not return a response.`;
+      const aiText = contentToText(lastAiMessage?.content);
+      const text = aiText || `The ${ctx.serverName || "MCP"} server did not return a response.`;
       const toolArgs: Record<string, unknown>[] = agentState?.toolCallArgsList ?? [];
       const toolOutputs: string[] = agentState?.toolOutputTextList ?? [];
 
@@ -882,7 +896,7 @@ export function registerMcpPassthroughAgent(
         })();
       }, 0);
 
-      return { outputMessage: text };
+      return agentResult({ output: text, ok: Boolean(aiText) });
     }
 
     return new StateGraph(state)

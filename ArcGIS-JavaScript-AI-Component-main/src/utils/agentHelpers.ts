@@ -39,9 +39,6 @@ export function contentToText(content: unknown): string {
   return "";
 }
 
-/**
- * Extract the text of the last human/user message from a LanGraph state object.
- */
 export function isAiMessageLike(message: any): boolean {
   return Boolean(
     message && (
@@ -76,17 +73,4 @@ export function extractMessageText(message: any): string {
   if (typeof message.kwargs?.content === "string") return message.kwargs.content;
   if (typeof message.lc_kwargs?.content === "string") return message.lc_kwargs.content;
   return contentToText(message.content);
-}
-
-export function extractLastUserText(state: any): string {
-  const rawMessages = Array.isArray(state?.messages) ? state.messages : [];
-  const messages = rawMessages.length > 0 && Array.isArray(rawMessages[0]) ? rawMessages.flat() : rawMessages;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (!msg) continue;
-    if (typeof msg.lc_kwargs?.content === "string") return msg.lc_kwargs.content.trim();
-    if (typeof msg.kwargs?.content === "string") return msg.kwargs.content.trim();
-    if (typeof msg.content === "string") return msg.content.trim();
-  }
-  return "";
 }

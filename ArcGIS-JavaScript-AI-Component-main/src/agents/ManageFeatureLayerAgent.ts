@@ -1,4 +1,4 @@
-import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage } from "@langchain/core/messages";
 import * as locator from "@arcgis/core/rest/locator";
@@ -16,7 +16,7 @@ import {
   getLastCreatedFeatureLayer,
 } from "../utils/assistantState";
 import { searchPortalLayerByName } from "../utils/arcgisOnline";
-import { extractLastUserText } from "../utils/agentHelpers";
+import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
 
 const editIntentTool = tool(
   async (args) => JSON.stringify(args),
@@ -108,21 +108,12 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
   const agentId = "manage-feature-layer-agent";
 
   const createGraph = () => {
-    const state = ANNOTATION.Root({
-      messages: ANNOTATION({ reducer: (cur: any[] = [], update: any) => [...cur, update], default: () => [] }),
-      outputMessage: ANNOTATION({
-        reducer: (current: string = "", update: any) =>
-          typeof update === "string" && update.trim()
-            ? current
-              ? `${current}\n\n${update}`
-              : update
-            : current,
-        default: () => "",
-      }),
+    const state = Annotation.Root({
+      ...agentRuntimeChannels(),
     });
 
     async function performEditNode(s: any) {
-      const text = extractLastUserText(s);
+      const text = readAgentRequest(s).request;
 
       // ── Extract intent via LLM ──────────────────────────────────────────
       let intent = {
@@ -167,13 +158,13 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
         null;
 
       if (!intent.action) {
-        return { outputMessage: "Please tell me what you'd like to do: add, update, or delete a feature." };
+        return agentResult({ output: "Please tell me what you'd like to do: add, update, or delete a feature.", ok: true });
       }
       if (!layerUrl) {
         const hint = intent.layerName
           ? `Could not find a layer named "${intent.layerName}" in the current map or in your ArcGIS Online content.`
           : "No target layer found.";
-        return { outputMessage: `${hint} Provide a FeatureServer URL or load the layer onto the map.` };
+        return agentResult({ output: `${hint} Provide a FeatureServer URL or load the layer onto the map.`, ok: false });
       }
 
       // ── ADD ─────────────────────────────────────────────────────────────
@@ -182,9 +173,9 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
           const drafts = await buildPointFeatureDraftsFromMemory(getLastAssistantGeoSnapshot());
           try {
             const result = await addPointFeaturesToLayer(layerUrl, drafts);
-            return { outputMessage: `${result.message}\nTarget layer: ${layerUrl}` };
+            return agentResult({ output: `${result.message}\nTarget layer: ${layerUrl}`, ok: result.success });
           } catch (err: any) {
-            return { outputMessage: `Failed to add features: ${err?.message ?? String(err)}` };
+            return agentResult({ output: `Failed to add features: ${err?.message ?? String(err)}`, ok: false });
           }
         }
 
@@ -195,7 +186,7 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
           const hint = intent.featureLocation
             ? `Could not geocode "${intent.featureLocation}".`
             : "No location was specified.";
-          return { outputMessage: `${hint} Please provide a place name, address, or coordinates.` };
+          return agentResult({ output: `${hint} Please provide a place name, address, or coordinates.`, ok: false });
         }
 
         const featureName = intent.featureName || intent.featureLocation || "New Feature";
@@ -265,18 +256,19 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
             : [];
 
           if (added > 0) {
-            return {
-              outputMessage:
+            return agentResult({
+              output:
                 `Successfully added "${featureName}" to the layer.\n` +
                 `Location: ${geo.latitude.toFixed(5)}, ${geo.longitude.toFixed(5)}\n` +
                 `Fields added: ${Object.keys(sanitizedAttrs).join(", ")}\n` +
                 `Target layer: ${layerUrl}`,
-            };
+              ok: true,
+            });
           }
           const errDetail = failed[0]?.error?.message ?? "Unknown error from applyEdits";
-          return { outputMessage: `Feature was not added. Server error: ${errDetail}` };
+          return agentResult({ output: `Feature was not added. Server error: ${errDetail}`, ok: false });
         } catch (err: any) {
-          return { outputMessage: `Failed to add feature: ${err?.message ?? String(err)}` };
+          return agentResult({ output: `Failed to add feature: ${err?.message ?? String(err)}`, ok: false });
         }
       }
 
@@ -285,9 +277,9 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
         try {
           const drafts = await buildPointFeatureDraftsFromMemory(getLastAssistantGeoSnapshot());
           const result = await upsertPointFeaturesByName(layerUrl, drafts);
-          return { outputMessage: `${result.message}\nTarget layer: ${layerUrl}` };
+          return agentResult({ output: `${result.message}\nTarget layer: ${layerUrl}`, ok: result.success });
         } catch (err: any) {
-          return { outputMessage: `Sync failed: ${err?.message ?? String(err)}` };
+          return agentResult({ output: `Sync failed: ${err?.message ?? String(err)}`, ok: false });
         }
       }
 
@@ -305,20 +297,20 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
               deletedCount += result.deletedCount ?? 0;
               if (result.success) messages.push(result.message);
             }
-            return { outputMessage: deletedCount ? `${messages.join("\n")}\nTarget layer: ${layerUrl}` : `No matching memory features were deleted from ${layerUrl}.` };
+            return agentResult({ output: deletedCount ? `${messages.join("\n")}\nTarget layer: ${layerUrl}` : `No matching memory features were deleted from ${layerUrl}.`, ok: deletedCount > 0 });
           } catch (err: any) {
-            return { outputMessage: `Delete failed: ${err?.message ?? String(err)}` };
+            return agentResult({ output: `Delete failed: ${err?.message ?? String(err)}`, ok: false });
           }
         }
         const targetName = intent.targetFeatureName;
         if (!targetName) {
-          return { outputMessage: "Specify the name of the feature to delete." };
+          return agentResult({ output: "Specify the name of the feature to delete.", ok: true });
         }
         try {
           const result = await deleteFeaturesByName(layerUrl, targetName);
-          return { outputMessage: `${result.message}\nTarget layer: ${layerUrl}` };
+          return agentResult({ output: `${result.message}\nTarget layer: ${layerUrl}`, ok: result.success });
         } catch (err: any) {
-          return { outputMessage: `Delete failed: ${err?.message ?? String(err)}` };
+          return agentResult({ output: `Delete failed: ${err?.message ?? String(err)}`, ok: false });
         }
       }
 
@@ -327,9 +319,9 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
         try {
           const drafts = await buildPointFeatureDraftsFromMemory(getLastAssistantGeoSnapshot());
           const result = await upsertPointFeaturesByName(layerUrl, drafts);
-          return { outputMessage: `${result.message}\nTarget layer: ${layerUrl}` };
+          return agentResult({ output: `${result.message}\nTarget layer: ${layerUrl}`, ok: result.success });
         } catch (err: any) {
-          return { outputMessage: `Update failed: ${err?.message ?? String(err)}` };
+          return agentResult({ output: `Update failed: ${err?.message ?? String(err)}`, ok: false });
         }
       }
 
@@ -339,13 +331,13 @@ export function registerManageFeatureLayerAgent(assistant: HTMLElement) {
         attrMap[field] = value;
       }
       if (!targetName || !Object.keys(attrMap).length) {
-        return { outputMessage: "For updates, specify the feature name and at least one field to change." };
+        return agentResult({ output: "For updates, specify the feature name and at least one field to change.", ok: true });
       }
       try {
         const result = await updateFeaturesByName(layerUrl, targetName, attrMap);
-        return { outputMessage: `${result.message}\nTarget layer: ${layerUrl}` };
+        return agentResult({ output: `${result.message}\nTarget layer: ${layerUrl}`, ok: result.success });
       } catch (err: any) {
-        return { outputMessage: `Update failed: ${err?.message ?? String(err)}` };
+        return agentResult({ output: `Update failed: ${err?.message ?? String(err)}`, ok: false });
       }
     }
 

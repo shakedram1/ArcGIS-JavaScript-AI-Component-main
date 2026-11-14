@@ -1,4 +1,4 @@
-import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
@@ -6,7 +6,7 @@ import { z } from "zod";
 import { addFeatureLayerToCurrentMap } from "../utils/featureLayerEdits";
 import { getCredential, searchPortalLayerByName } from "../utils/arcgisOnline";
 import esriConfig from "@arcgis/core/config";
-import { extractLastUserText } from "../utils/agentHelpers";
+import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
 
 // ── Extraction tool ────────────────────────────────────────────────────────────
 
@@ -85,22 +85,12 @@ export function registerAddLayerToMapAgent(assistant: HTMLElement) {
   const agentId = "add-layer-to-map-agent";
 
   const createGraph = () => {
-    const state = ANNOTATION.Root({
-      messages: ANNOTATION({
-        reducer: (cur: any[] = [], update: any) => [...cur, update],
-        default: () => [],
-      }),
-      outputMessage: ANNOTATION({
-        reducer: (current: string = "", update: any) =>
-          typeof update === "string" && update.trim()
-            ? current ? `${current}\n\n${update}` : update
-            : current,
-        default: () => "",
-      }),
+    const state = Annotation.Root({
+      ...agentRuntimeChannels(),
     });
 
     async function addLayerNode(s: any) {
-      const text = extractLastUserText(s);
+      const text = readAgentRequest(s).request;
 
       // ── Extract intent ──────────────────────────────────────────────────
       let intent: { title: string | null; itemId: string | null; serviceUrl: string | null } =
@@ -128,19 +118,19 @@ export function registerAddLayerToMapAgent(assistant: HTMLElement) {
       const resolved = await resolveLayerUrl(intent.title, intent.itemId, intent.serviceUrl);
 
       if ("error" in resolved) {
-        return { outputMessage: resolved.error };
+        return agentResult({ output: resolved.error, ok: false });
       }
 
       // ── Add to map ──────────────────────────────────────────────────────
       try {
         await addFeatureLayerToCurrentMap(resolved.url, resolved.resolvedTitle ?? undefined);
         const displayName = resolved.resolvedTitle ?? resolved.url;
-        return {
-          outputMessage:
-            `Added "${displayName}" to the map.\nLayer URL: ${resolved.url}`,
-        };
+        return agentResult({
+          output: `Added "${displayName}" to the map.\nLayer URL: ${resolved.url}`,
+          ok: true,
+        });
       } catch (err: any) {
-        return { outputMessage: `Failed to add the layer: ${err?.message ?? String(err)}` };
+        return agentResult({ output: `Failed to add the layer: ${err?.message ?? String(err)}`, ok: false });
       }
     }
 

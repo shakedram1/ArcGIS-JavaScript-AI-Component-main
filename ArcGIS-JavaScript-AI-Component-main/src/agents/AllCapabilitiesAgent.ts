@@ -1,4 +1,5 @@
-import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
+import { agentRuntimeChannels, agentResult } from "./agentRuntime";
 
 type AgentSummary = {
   name: string;
@@ -99,20 +100,12 @@ export function registerFeatureLayerCapabilitiesAgent(assistant: HTMLElement) {
   const agentId = "all-capabilities-agent";
 
   const createGraph = () => {
-    const state = ANNOTATION.Root({
-      outputMessage: ANNOTATION({
-        reducer: (current: string = "", update: any) =>
-          typeof update === "string" && update.trim()
-            ? current
-              ? `${current}\n\n${update}`
-              : update
-            : current,
-        default: () => "",
-      }),
+    const state = Annotation.Root({
+      ...agentRuntimeChannels(),
     });
 
     function summarizeNode() {
-      return { outputMessage: buildCapabilitiesSummary(assistant) };
+      return agentResult({ output: buildCapabilitiesSummary(assistant), ok: true });
     }
 
     const graph = new StateGraph(state)

@@ -1,10 +1,10 @@
 import type { CreateHostedFeatureServiceResult } from "../utils/arcgisOnline";
 import { getCredential, createHostedFeatureService } from "../utils/arcgisOnline";
-import { extractLastUserText } from "../utils/agentHelpers";
+import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
 import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
-import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { z } from "zod";
 import {
   addFeatureLayerToCurrentMap,
@@ -86,31 +86,22 @@ export function registerCreateFeatureLayerAgent(
   const agentId = "create-feature-layer-agent";
 
   const createGraph = () => {
-    const state = ANNOTATION.Root({
-      messages: ANNOTATION({ reducer: (cur: any[] = [], update: any) => [...cur, update], default: () => [] }),
-      outputMessage: ANNOTATION({
-        reducer: (current: string = "", update: any) =>
-          typeof update === "string" && update.trim()
-            ? current
-              ? `${current}\n\n${update}`
-              : update
-            : current,
-        default: () => "",
-      }),
-      result: ANNOTATION({
+    const state = Annotation.Root({
+      ...agentRuntimeChannels(),
+      result: Annotation({
         reducer: (_current: any, update: CreateHostedFeatureServiceResult | null) => update ?? null,
         default: () => null,
       }),
-      desiredName: ANNOTATION({ reducer: (_c: any, u: any) => (typeof u === "string" ? u : null), default: () => null }),
-      desiredGeometryType: ANNOTATION({ reducer: (_c: any, u: any) => (typeof u === "string" ? u : null), default: () => null }),
-      desiredFields: ANNOTATION({ reducer: (_c: any, u: any) => (Array.isArray(u) ? u : null), default: () => null }),
-      fieldsRequested: ANNOTATION({ reducer: (_c: any, u: any) => Boolean(u), default: () => false }),
-      useMemory: ANNOTATION({ reducer: (_c: any, u: any) => Boolean(u), default: () => false }),
-      handoffToExistingLayer: ANNOTATION({ reducer: (_c: any, u: any) => Boolean(u), default: () => false }),
+      desiredName: Annotation({ reducer: (_c: any, u: any) => (typeof u === "string" ? u : null), default: () => null }),
+      desiredGeometryType: Annotation({ reducer: (_c: any, u: any) => (typeof u === "string" ? u : null), default: () => null }),
+      desiredFields: Annotation({ reducer: (_c: any, u: any) => (Array.isArray(u) ? u : null), default: () => null }),
+      fieldsRequested: Annotation({ reducer: (_c: any, u: any) => Boolean(u), default: () => false }),
+      useMemory: Annotation({ reducer: (_c: any, u: any) => Boolean(u), default: () => false }),
+      handoffToExistingLayer: Annotation({ reducer: (_c: any, u: any) => Boolean(u), default: () => false }),
     });
 
     async function parseRequestNode(s: any) {
-      const text = extractLastUserText(s);
+      const text = readAgentRequest(s).request;
 
       let extracted: {
         isNewLayerRequest: boolean;
@@ -142,7 +133,10 @@ export function registerCreateFeatureLayerAgent(
         return {
           desiredName: null, desiredGeometryType: null, desiredFields: null,
           fieldsRequested: false, useMemory: false, handoffToExistingLayer: true,
-          outputMessage: "This looks like a request to add to an existing layer. Please use the Manage Feature Layer agent.",
+          ...agentResult({
+            output: "This looks like a request to add to an existing layer. Please use the Manage Feature Layer agent.",
+            ok: false,
+          }),
         };
       }
 
@@ -195,16 +189,16 @@ export function registerCreateFeatureLayerAgent(
       const fields = s.desiredFields || ctx.fields || (inferredMemoryFields.length ? inferredMemoryFields : null);
 
       if (!serviceName) {
-        return { outputMessage: 'Awaiting clarification: What title/name should I use for the feature layer? Example: title "Incident Results".' };
+        return agentResult({ output: 'Awaiting clarification: What title/name should I use for the feature layer? Example: title "Incident Results".', ok: true });
       }
       if (!geometryType) {
-        return { outputMessage: "Awaiting clarification: What geometry type should I create? Reply with point, polyline, or polygon." };
+        return agentResult({ output: "Awaiting clarification: What geometry type should I create? Reply with point, polyline, or polygon.", ok: true });
       }
       if (Boolean(s.fieldsRequested) && (!fields || !fields.length)) {
-        return { outputMessage: "Awaiting clarification: I couldn't parse the fields list. Provide fields like: fields status:str, observed_at:date, score:int" };
+        return agentResult({ output: "Awaiting clarification: I couldn't parse the fields list. Provide fields like: fields status:str, observed_at:date, score:int", ok: true });
       }
       if (Boolean(s.useMemory) && !memoryDrafts.length) {
-        return { outputMessage: "No assistant results with usable locations are currently in memory. Ask the MCP agent for locations first, then retry creating the layer from memory." };
+        return agentResult({ output: "No assistant results with usable locations are currently in memory. Ask the MCP agent for locations first, then retry creating the layer from memory.", ok: false });
       }
 
       try {
@@ -220,7 +214,7 @@ export function registerCreateFeatureLayerAgent(
         });
 
         if (!result.success || !result.serviceUrl) {
-          return { outputMessage: `Error: ${result.message}`, result };
+          return { ...agentResult({ output: `Error: ${result.message}`, ok: false }), result };
         }
 
         const layerUrl = `${result.serviceUrl.replace(/\/+$/, "")}/0`;
@@ -245,17 +239,20 @@ export function registerCreateFeatureLayerAgent(
 
         const itemUrl = result.serviceItemId ? `${cred.portalUrl}/home/item.html?id=${result.serviceItemId}` : null;
         return {
-          outputMessage:
+          ...agentResult({
+            output:
             `Success: ${result.message}` +
             `\nItem ID: ${result.serviceItemId ?? "(not returned)"}` +
             (itemUrl ? `\nItem Page: ${itemUrl}` : "") +
             `\nLayer URL: ${layerUrl}` +
             `\nAdded the new layer to the active map.` +
             seedMessage,
+            ok: true,
+          }),
           result,
         };
       } catch (error: any) {
-        return { outputMessage: `Error creating feature service: ${error?.message || error}` };
+        return agentResult({ output: `Error creating feature service: ${error?.message || error}`, ok: false });
       }
     }
 

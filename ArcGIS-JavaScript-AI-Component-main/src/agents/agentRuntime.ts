@@ -1,5 +1,5 @@
 import { Annotation } from "@langchain/langgraph/web";
-import type { BaseMessage } from "@langchain/core/messages";
+import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
 
 export type SharedState = Record<string, { value: unknown }>;
 
@@ -70,6 +70,30 @@ export function readAgentRequest(state: { agentExecutionContext?: Partial<AgentR
     }
   }
   return { request, userRequest, messages, sharedState: ctx.sharedState ?? {} };
+}
+
+function isHumanMessage(m: any): boolean {
+  if (!m) return false;
+  const type = typeof m._getType === "function" ? m._getType() : m.type;
+  return type === "human" || m.role === "user";
+}
+
+/**
+ * Seed an agent's own message loop from the 5.1 run context: the orchestrator's
+ * history, plus the request as a trailing human message when the last human
+ * message in that history is not already the request (the history may be empty).
+ */
+export function seedAgentMessages(history: BaseMessage[] | undefined, request: string): BaseMessage[] {
+  const messages = Array.isArray(history) ? history.filter(Boolean) : [];
+  const text = request.trim();
+  if (!text) return messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isHumanMessage(messages[i])) {
+      if (textOf(messages[i]).trim() === text) return messages;
+      break;
+    }
+  }
+  return [...messages, new HumanMessage(text)];
 }
 
 export function agentResult(p: {
