@@ -134,7 +134,7 @@ Reset restores visibility, clears `layerView.filter` and `featureEffect` on the 
 `search_plan` also returns MCP `structuredContent`: the response's `location`, `band`, and per hit `citation`, `pages`, `via`, `heading_path` (no chunk text). Existing callers unaffected.
 
 ## 6. Testing
-- **Routing test set** (`tests/routing-questions.yml`, local harness): Hebrew requests labelled `plan`, `plan+place`, `map`, `out_of_scope`, with the expected agent; includes refinements and clears. Run by hand after every description change and SDK upgrade, reading the "Executing registered agent" trace. Start with ~25 requests, at least half supplied by the team in users' wording.
+- **Routing test set** (`docs/routing-questions.yml`, committed; run by hand): Hebrew requests labelled `plan`, `plan+place`, `map`, `out_of_scope`, with the expected agent; includes refinements and clears. Run by hand after every description change and SDK upgrade, reading the "Executing registered agent" trace. Start with ~25 requests, at least half supplied by the team in users' wording.
 - **Unit tests** (tsx, Node): request validation against a `/v1/locations` fixture, reverse `gis_codes`, override merge, where-clause building, scope check, focus-state reducer.
 - **Manual end-to-end** on the TA5500 map: the four cases of §5.3 step 4; a neighborhood name; a follow-up; clear by chip and by text; a place outside Tel Aviv; an unrelated topic; RAG down.
 

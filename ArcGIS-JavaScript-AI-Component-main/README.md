@@ -318,7 +318,36 @@ In the browser, the console shows which agent handled each question ("Executing 
 | Hub `toolCount` is 0 or `ta5500` is not running | `enabled` is still `false`, the `args` path in your hub config is wrong, or step 2 (`npm install` in `mcp/`) was skipped. The hub terminal prints the error. |
 | `search_plan` returns HTTP 401 | `RAG_API_KEY` in the hub config does not match the RAG's `.env`. |
 | `search_plan` returns 503 | The embedder is down or cold; wait and retry, or restart it with `docker compose restart embedder`. |
-| The assistant replies with a generic "how can I help?" to every question | Known issue on this branch: with `@arcgis/ai-components` 5.1.x the custom agents do not yet receive the user's question (they still use the 5.0 agent contract). The RAG chain itself works (check with step 7). Fix tracked in `docs/superpowers/specs/2026-11-14-plan-aware-assistant-design.md` §5.0. |
+
+## TA5500 Assistant (Tel Aviv master plan)
+
+When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122), the app enters **TA5500 mode** and registers three extra agents. Plan answers need the RAG stack running (see [Full Dev Stack](#full-dev-stack-app--mcp-hub--ta5500-rag-linux--wsl)); without it the Plan agent replies with a Hebrew "unavailable" message and leaves the map as it is.
+
+| Agent id | Chosen when the request is about | Does |
+|---|---|---|
+| `ta5500-plan` | what the plan says or allows ("מה מותר לבנות באזור 105?", "מה אומר סעיף 4.3?"), and follow-ups or clearing the focus ("ומה לגבי מגורים שם?", "נקה מיקוד") | Answers from the plan with citations, focuses the map on the named place and highlights the relevant layers |
+| `ta5500-map` | a map action on the plan map ("קח אותי לרמת אביב", "הצג רק אזורי מגורים", "תסתיר את שכבת המוקדים", "אפס את המפה") | Go to a place, show/filter/hide whole layers, reset. Hiding only part of a layer is declined |
+| `ta5500-scope` | a place outside Tel Aviv-Yafo or an unrelated topic | Replies that the assistant only covers the Tel Aviv master plan |
+
+Other agents (data exploration, layer creation, MCP passthrough, help) stay available; the passthrough agent does not take plan questions in TA5500 mode.
+
+**Focus.** A plan answer sets the map focus (a place plus highlighted layers). A chip "מיקוד: …" with an X appears in the assistant panel while a focus is active. The focus is cleared by the chip, by asking ("נקה מיקוד", "אפס את המפה"), or by "שיחה חדשה"; clearing restores layer visibility and filters.
+
+**Routing trace.** Open the app with `?mode=edit`: the chat shows "Executing registered agent: <id>" for each request, so you can see which agent was picked.
+
+**Routing test set.** `docs/routing-questions.yml` lists Hebrew requests with the expected agent. Run it by hand after every agent-description change and every `@arcgis/*` upgrade; the header of the file explains how and what to record. Add the team's own wording under `# team questions`.
+
+**Manual end-to-end checklist** (TA5500 map, RAG running):
+
+- [ ] The four focus cases of spec §5.3 step 4 (area code, sub-area, special street, free-text place).
+- [ ] A neighborhood name ("רמת אביב").
+- [ ] A follow-up that depends on the focus ("ומה לגבי מגורים שם?").
+- [ ] Clear the focus by the chip, and by text ("נקה מיקוד").
+- [ ] A place outside Tel Aviv (Haifa, Paris): scope reply, map unchanged.
+- [ ] An unrelated topic (weather): scope reply.
+- [ ] RAG down (`docker compose stop service` in `ta5500-rag`): Hebrew unavailable message, focus untouched; then `docker compose start service`.
+
+**Unit tests.** `npm test` runs the Node tests for the agent runtime and the pure TA5500 modules (no browser needed).
 
 ## Local Tests
 

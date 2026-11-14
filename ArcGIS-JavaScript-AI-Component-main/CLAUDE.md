@@ -18,10 +18,11 @@ npm run hub:dev      # hub with tsx --watch
 npm run build        # vite build (does NOT type-check)
 npm run preview      # serve the build on :4173
 npx tsc --noEmit     # type-check src/ (tsconfig only includes src/, not hub/)
-npm run test:local   # npx tsx tests/run-tests.ts
+npm test             # tsx --test: src/agents/__tests__ and src/ta5500/__tests__
+npm run test:local   # npx tsx tests/run-tests.ts (local-only harness)
 ```
 
-- There is no lint script and no test framework. `tests/` is gitignored on purpose (local-only harness), so it may not exist in a given checkout. It covers only the pure logic in `src/agents/mcpAgentCore.ts`.
+- There is no lint script. `npm test` runs the committed Node tests (`node:test` via tsx) for the agent runtime and the pure `src/ta5500/` modules. `tests/` is gitignored on purpose (local-only harness), so it may not exist in a given checkout. It covers only the pure logic in `src/agents/mcpAgentCore.ts` (`npm run test:local`).
 - `?mode=edit` in the URL enables the wider assistant panel and the theme editor, which persists to `localStorage` (`src/hooks/useTheme.ts`).
 
 ### Dev server gotchas (`vite.config.ts`)
@@ -45,6 +46,10 @@ The dev config has machine-specific defaults that break `npm run dev` on other m
 Each agent exports `registerXxxAgent(assistantEl, ...)`. The function:
 1. builds an agent object `{ id, name, description, createGraph, workspace }`, where `createGraph` returns a LangGraph `StateGraph` imported from `@langchain/langgraph/web`, whose state has `messages` plus an `outputMessage` string that the assistant displays;
 2. removes any existing `[data-agent-id=...]` child and appends a new `<arcgis-assistant-agent>` element with `.agent = agent`.
+
+**5.1 agent contract.** `@arcgis/ai-components` 5.1 passes the request and history through `agentExecutionContext`, not `state.messages`. Every agent must build its state with `agentRuntimeChannels()`, read the request with `readAgentRequest()` and return through `agentResult()` (all in `src/agents/agentRuntime.ts`); never read `state.messages`, or the agent answers a generic "how can I help?".
+
+**TA5500 mode.** `useAssistantSetup` detects the TA5500 plan layers on the loaded map and, only then, registers `ta5500-plan` (`PlanAgent.ts`), `ta5500-map` (`Ta5500MapAgent.ts`) and `ta5500-scope` (`ScopeAgent.ts`) from its single registration list, and hides the `ta5500` MCP tools from the passthrough agent. Code lives in `src/ta5500/`: pure, Node-testable modules (`focus.ts`, `layers.ts`, `planFlow.ts`, `planLogic.ts`, `prompts.ts` with the agent descriptions and Hebrew copy, `ragClient.ts`, `types.ts`) and `mapFocus.ts`, the only module that touches the MapView. Keep the pure modules free of ArcGIS imports so `npm test` runs them. After changing any agent description, re-run the routing set `docs/routing-questions.yml` by hand.
 
 The assistant's router chooses an agent by its `description`, so description wording matters for routing. Several descriptions include explicit "do not use for X" clauses to prevent misroutes. Parameter extraction inside agents uses `invokeToolPrompt` from `@arcgis/ai-orchestrator` with a Zod-schema'd LangChain `tool` as a structured-output trick. `@arcgis/ai-orchestrator` and `@langchain/core` come in transitively through `@arcgis/ai-components`, not as direct dependencies.
 

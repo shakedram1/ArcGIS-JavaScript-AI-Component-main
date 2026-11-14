@@ -1,0 +1,187 @@
+# Routing test set for TA5500 mode (spec §6).
+#
+# What it checks: that the orchestrator routes each Hebrew request to the expected agent,
+# based on the agent descriptions in src/ta5500/prompts.ts (and the other agents' descriptions).
+#
+# How to run (by hand, after every description change and every @arcgis/* upgrade):
+#   1. Start the full dev stack (README "Full Dev Stack"; the RAG must be running for plan entries).
+#   2. Open the TA5500 map with ?mode=edit, e.g. http://localhost:5173/?mode=edit .
+#      In edit mode the chat shows "Executing registered agent: <id>" for each request.
+#   3. Ask each `q` in a FRESH conversation (press "שיחה חדשה" first), unless the entry has `after:`.
+#      An `after:` entry is asked right after the named earlier question, in the same conversation.
+#   4. Compare the agent named in the trace with `expect`.
+#   5. Record in `result`: pass | fail, and for a fail add `got: <agent id seen>` and optionally `note:`.
+#      Also record the date and the @arcgis/* version in the line below.
+#
+# Last run: not run yet (all results pending)
+#
+# Fields:
+#   q       the request, as typed by the user
+#   kind    plan | plan+place | map | out_of_scope | other_agent
+#   expect  ta5500-plan | ta5500-map | ta5500-scope | all-capabilities-agent | create-feature-layer-agent |
+#           data-exploration (SDK built-in) | ... (other custom agent ids: see data-agent-id in src/agents)
+#   after   (optional) earlier q this one follows in the same conversation
+#   note    what a correct run looks like beyond the agent choice
+#   result  pending | pass | fail
+#
+# Area codes and places below exist in the plan index
+# (src/ta5500/__tests__/fixtures/locations.json): 105 אפקה, 202 נאות אפקה, 102/104/106 רמת אביב, 703 מבואות יפו.
+
+# ---- plan questions without a place ----
+- q: "מה אומר סעיף 4.3?"
+  kind: plan
+  expect: ta5500-plan
+  note: answer cites only chapter 4 (סעיף 4.x); no place identified, map unchanged
+  result: pending
+- q: "מהם עקרונות הפיתוח של תעסוקה בתוכנית?"
+  kind: plan
+  expect: ta5500-plan
+  result: pending
+- q: "מה מגדירה טבלה 5.4?"
+  kind: plan
+  expect: ta5500-plan
+  result: pending
+- q: "מהו רח\"ק ומה הוא קובע בתוכנית המתאר?"
+  kind: plan
+  expect: ta5500-plan
+  result: pending
+
+# ---- plan questions with a place ----
+- q: "מה מותר לבנות באזור 105?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: focuses on area 105, highlights relevant plan layers
+  result: pending
+- q: "אילו נקודות תשתית מתוכננות בנאות אפקה?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: place resolves to area 202
+  result: pending
+- q: "מה תוכנית הפיתוח העסקי ברמת אביב?"
+  kind: plan+place
+  expect: ta5500-plan
+  result: pending
+- q: "מה גובה הבנייה המותר באזור 703?"
+  kind: plan+place
+  expect: ta5500-plan
+  result: pending
+- q: "אילו הוראות מיוחדות חלות בתת אזור 101ה?"
+  kind: plan+place
+  expect: ta5500-plan
+  result: pending
+
+# ---- place not in plan index ----
+# Area 610 does not exist in the plan index (areas are 101-108, 201-212, 301, 401, 402, ...).
+# Expected: the Plan agent answers from the plan, says the place was not identified, map unchanged.
+- q: "מה תוכנית הפיתוח העסקי באזור 610?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: place not in plan index; reply includes NO_PLACE_NOTE, map and focus unchanged
+  result: pending
+- q: "מה מותר לבנות באזור 610?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: place not in plan index (same as above)
+  result: pending
+# real-area twin of the 610 question
+- q: "מה תוכנית הפיתוח העסקי באזור 105?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: real area; focus set on 105
+  result: pending
+
+# ---- follow-up / refine / clear focus ----
+- q: "ומה לגבי מגורים שם?"
+  after: "מה מותר לבנות באזור 105?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: resolves "שם" to area 105 from the focus
+  result: pending
+- q: "הצג רק את המגורים שם"
+  after: "מה מותר לבנות באזור 105?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: refine_focus intent (no plan text asked); changes what is shown in the focus
+  result: pending
+- q: "נקה מיקוד"
+  after: "מה מותר לבנות באזור 105?"
+  kind: plan
+  expect: ta5500-plan
+  note: focus cleared, FOCUS_CLEARED_REPLY, chip disappears
+  result: pending
+
+# ---- map actions ----
+- q: "קח אותי לרמת אביב"
+  kind: map
+  expect: ta5500-map
+  note: go_to
+  result: pending
+- q: "תתמקד על אזור 703"
+  kind: map
+  expect: ta5500-map
+  note: go_to
+  result: pending
+- q: "הצג רק אזורי מגורים"
+  kind: map
+  expect: ta5500-map
+  note: filter/show
+  result: pending
+- q: "הצג את אזורי התעסוקה"
+  kind: map
+  expect: ta5500-map
+  result: pending
+- q: "תסתיר את שכבת המוקדים"
+  kind: map
+  expect: ta5500-map
+  note: hides the whole layer
+  result: pending
+- q: "תסתיר את אזורי המגורים"
+  kind: map
+  expect: ta5500-map
+  note: hide partial; documented to be declined (HIDE_PARTIAL_REPLY in prompts.ts), map unchanged; routing to ta5500-map is the pass criterion
+  result: pending
+- q: "אפס את המפה"
+  kind: map
+  expect: ta5500-map
+  note: reset
+  result: pending
+
+# ---- out of scope ----
+- q: "נווט לחיפה"
+  kind: out_of_scope
+  expect: ta5500-scope
+  note: place outside Tel Aviv-Yafo (ta5500-map declining with OUTSIDE_TA_REPLY is the acceptable alternative; record which)
+  result: pending
+- q: "נווט לפריז"
+  kind: out_of_scope
+  expect: ta5500-scope
+  note: as above
+  result: pending
+- q: "מה מזג האוויר היום?"
+  kind: out_of_scope
+  expect: ta5500-scope
+  result: pending
+- q: "מי זכה באליפות הליגה בשנה שעברה?"
+  kind: out_of_scope
+  expect: ta5500-scope
+  result: pending
+
+# ---- other agents (watch for misroutes, spec §7) ----
+- q: "כמה מוקדי תעסוקה יש במפה?"
+  kind: other_agent
+  expect: data-exploration
+  note: counts and statistics are not the Plan or Map agent's job
+  result: pending
+- q: "create a point layer named Sites"
+  kind: other_agent
+  expect: create-feature-layer-agent
+  result: pending
+- q: "מה אתה יכול לעשות?"
+  kind: other_agent
+  expect: all-capabilities-agent
+  note: help / capabilities listing
+  result: pending
+
+# team questions
+# Reserved for the team's own wording (spec open item 1). Add entries in the format above;
+# at least half of the final set should be users' real requests.
