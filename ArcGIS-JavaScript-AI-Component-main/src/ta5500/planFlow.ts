@@ -7,7 +7,7 @@ import { citedSections, layersForSections, validateRequest } from "./planLogic";
 import type { Place } from "./focus";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "./types";
 import { PlanServiceError } from "./ragClient";
-import { REQUEST_FAILED_REPLY } from "./prompts";
+import { REQUEST_FAILED_REPLY, hiddenLine, hidePartialNote, hideWholeMapNote, shownLine } from "./prompts";
 
 const FILTER_KEYS: (keyof PlanFilters)[] = ["areas", "entities", "zone_types", "headings"];
 
@@ -174,23 +174,50 @@ export function topicLayers(topic: string | null | undefined, loc: PlanLocations
 }
 
 export type MapAction = "go_to" | "show" | "hide" | "filter" | "reset";
-export type MapStep = "reset" | "go_to" | "focus" | "hide" | "no_place" | "no_topic";
+export type MapStep = "reset" | "outside" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
 
 /**
  * What the Map agent does (never acts on things not in the plan):
  * - reset → reset;
- * - hide → hide the topic's layers, or no_topic;
+ * - a named place outside Tel Aviv-Yafo (every action but reset) → outside (OUTSIDE_TA_REPLY, map unchanged);
  * - go_to → go to the resolved place, or no_place;
- * - show / filter → no_place when a place was named but not resolved (the map stays unchanged); focus when the
- *   topic matched plan layers or a place resolved; otherwise no_topic.
+ * - show / filter / hide → no_place when a place was named but not resolved (the map stays unchanged);
+ * - hide → hide the layers named as a whole (hideTargets); hide_partial when the topic only names types inside
+ *   layers (hiding part of a layer is not supported); no_topic when nothing matched;
+ * - show / filter → focus when the topic matched plan layers or a place resolved; otherwise no_topic.
  */
 export function mapStep(
   action: MapAction,
-  s: { placeText: string | null | undefined; place: Place | null; layers: Map<LayerKey, string[]> },
+  s: { placeText: string | null | undefined; place: Place | null; layers: Map<LayerKey, string[]>; outside?: boolean },
 ): MapStep {
   if (action === "reset") return "reset";
-  if (action === "hide") return s.layers.size ? "hide" : "no_topic";
+  if (s.outside) return "outside";
   if (action === "go_to") return s.place ? "go_to" : "no_place";
   if ((s.placeText ?? "").trim() && !s.place) return "no_place";
+  if (action === "hide") {
+    if (!s.layers.size) return "no_topic";
+    return hideTargets(s.layers).whole.length ? "hide" : "hide_partial";
+  }
   return s.layers.size || s.place ? "focus" : "no_topic";
+}
+
+/** Hide acts only on layers named as a whole (codes []); layers matched by feature codes are reported as partial. */
+export function hideTargets(layers: Map<LayerKey, string[]>): { whole: LayerKey[]; partial: LayerKey[] } {
+  const whole: LayerKey[] = [];
+  const partial: LayerKey[] = [];
+  for (const [key, codes] of layers) (codes.length ? partial : whole).push(key);
+  return { whole, partial };
+}
+
+/**
+ * Reply for a hide: what was hidden, requested whole layers not on the map, the code-level part that was not
+ * hidden, and — when a place inside Tel Aviv-Yafo was named — that the hide applies to the whole map.
+ */
+export function hideReply(p: { hidden: string[]; missing: string[]; partial: string[]; placeLabel: string | null }): string {
+  return composeOutput(
+    hiddenLine(p.hidden),
+    shownLine(null, [], p.missing),
+    hidePartialNote(p.partial),
+    p.placeLabel && p.hidden.length ? hideWholeMapNote(p.placeLabel) : "",
+  );
 }

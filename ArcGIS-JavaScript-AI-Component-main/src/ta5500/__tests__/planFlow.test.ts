@@ -13,6 +13,8 @@ import {
   conversationText,
   failureReply,
   focusSummary,
+  hideReply,
+  hideTargets,
   mapStep,
   placeFromText,
   topicLayers,
@@ -141,6 +143,9 @@ test("mapStep: never acts on things not in the plan", () => {
   assert.equal(mapStep("reset", { placeText: null, place: null, layers: none }), "reset");
   assert.equal(mapStep("hide", { placeText: null, place: null, layers: some }), "hide");
   assert.equal(mapStep("hide", { placeText: "105", place, layers: none }), "no_topic");
+  assert.equal(mapStep("go_to", { placeText: "חיפה", place: null, layers: none, outside: true }), "outside");
+  assert.equal(mapStep("show", { placeText: "חיפה", place: null, layers: some, outside: true }), "outside");
+  assert.equal(mapStep("reset", { placeText: "חיפה", place: null, layers: none, outside: true }), "reset");
   assert.equal(mapStep("go_to", { placeText: "105", place, layers: none }), "go_to");
   assert.equal(mapStep("go_to", { placeText: "מקום", place: null, layers: some }), "no_place");
   assert.equal(mapStep("go_to", { placeText: null, place: null, layers: none }), "no_place");
@@ -152,4 +157,33 @@ test("mapStep: never acts on things not in the plan", () => {
     assert.equal(mapStep(a, { placeText: null, place: null, layers: none }), "no_topic");
     assert.equal(mapStep(a, { placeText: "  ", place: null, layers: none }), "no_topic");
   }
+});
+
+test("hide: whole layers only, never outside Tel Aviv, place does not scope it", () => {
+  const place = { kind: "geocoded" as const, codes: ["102"], label: "רמת אביב" };
+  const foci = topicLayers("שכבת המוקדים", loc);
+  // Place outside Tel Aviv-Yafo → declined, map unchanged.
+  assert.equal(mapStep("hide", { placeText: "חיפה", place: null, layers: foci, outside: true }), "outside");
+  // Named place not identified → no_place (map unchanged), as for show / filter.
+  assert.equal(mapStep("hide", { placeText: "מקום לא ידוע", place: null, layers: foci }), "no_place");
+  // Place inside Tel Aviv-Yafo → hide the whole layer and say it applies to the whole map.
+  assert.equal(mapStep("hide", { placeText: "רמת אביב", place, layers: foci }), "hide");
+  assert.equal(
+    hideReply({ hidden: ["מוקדי פיתוח ושימוש עירוניים"], missing: [], partial: [], placeLabel: place.label }),
+    "הוסתרו במפה: מוקדי פיתוח ושימוש עירוניים.\n\nההסתרה חלה על כל המפה, ולא רק על רמת אביב.",
+  );
+  // Code-level only (types inside the zones layer) → no action.
+  const residential = topicLayers("אזורי מגורים", loc);
+  assert.deepEqual(hideTargets(residential), { whole: [], partial: ["zones"] });
+  assert.equal(mapStep("hide", { placeText: null, place: null, layers: residential }), "hide_partial");
+  // Mixed: employment layer named as a whole, zone types inside the zones layer → hide only the whole layer.
+  const emp = topicLayers("אזורי תעסוקה", loc);
+  assert.deepEqual(hideTargets(emp), { whole: ["employment"], partial: ["zones", "foci"] });
+  assert.equal(mapStep("hide", { placeText: null, place: null, layers: emp }), "hide");
+  assert.equal(
+    hideReply({ hidden: ["תעסוקה"], missing: [], partial: ["אזורי ייעוד"], placeLabel: null }),
+    "הוסתרו במפה: תעסוקה.\n\nאין אפשרות להסתיר רק חלק משכבה, ולכן לא הוסתרו סוגים בתוך: אזורי ייעוד.",
+  );
+  // Whole layer not on the map.
+  assert.equal(hideReply({ hidden: [], missing: ["מרחבי תכנון"], partial: [], placeLabel: "רמת אביב" }), "לא נמצאו במפה: מרחבי תכנון.");
 });

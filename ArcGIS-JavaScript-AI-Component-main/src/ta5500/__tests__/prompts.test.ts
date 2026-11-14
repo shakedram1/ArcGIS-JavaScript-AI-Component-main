@@ -15,6 +15,9 @@ import {
   SCOPE_REPLY,
   shownLine,
   FOCUS_CLEARED_REPLY,
+  HIDE_PARTIAL_REPLY,
+  hidePartialNote,
+  hideWholeMapNote,
   goToLine,
   hiddenLine,
   MAP_SUPERSEDED_REPLY,
@@ -94,4 +97,14 @@ test("Map agent copy", () => {
   assert.equal(goToLine("אזור 610"), "המפה הועברה אל אזור 610.");
   assert.equal(hiddenLine(["מוקדי פיתוח ושימוש עירוניים"]), "הוסתרו במפה: מוקדי פיתוח ושימוש עירוניים.");
   assert.equal(hiddenLine([]), "");
+});
+
+test("hide copy", () => {
+  assert.equal(
+    HIDE_PARTIAL_REPLY,
+    'אין אפשרות להסתיר רק חלק משכבה, ולכן המפה לא שונתה. אפשר לבקש במקום זאת להציג רק את הסוגים הרצויים, למשל "הצג רק אזורי תעסוקה".',
+  );
+  assert.equal(hidePartialNote(["אזורי ייעוד"]), "אין אפשרות להסתיר רק חלק משכבה, ולכן לא הוסתרו סוגים בתוך: אזורי ייעוד.");
+  assert.equal(hidePartialNote([]), "");
+  assert.equal(hideWholeMapNote("אזור 610"), "ההסתרה חלה על כל המפה, ולא רק על אזור 610.");
 });

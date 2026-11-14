@@ -117,6 +117,20 @@ export const NO_TOPIC_NOTE = "לא נמצאה בתוכנית שכבה מתאימ
 /** Map agent: a newer map request replaced this one before it was applied. */
 export const MAP_SUPERSEDED_REPLY = "התקבלה בקשת מפה חדשה יותר, ולכן הבקשה הזו לא הוחלה.";
 
+/** Map agent, hide: the topic only names some types inside a layer (for example "אזורי מגורים"). */
+export const HIDE_PARTIAL_REPLY =
+  'אין אפשרות להסתיר רק חלק משכבה, ולכן המפה לא שונתה. אפשר לבקש במקום זאת להציג רק את הסוגים הרצויים, למשל "הצג רק אזורי תעסוקה".';
+
+/** Map agent, hide: the code-level part of a mixed topic that was not hidden. */
+export function hidePartialNote(layerLabels: string[]): string {
+  return layerLabels.length ? `אין אפשרות להסתיר רק חלק משכבה, ולכן לא הוסתרו סוגים בתוך: ${layerLabels.join(", ")}.` : "";
+}
+
+/** Map agent, hide with a place: hiding applies to the whole map, not only to the place. */
+export function hideWholeMapNote(placeLabel: string): string {
+  return `ההסתרה חלה על כל המפה, ולא רק על ${placeLabel}.`;
+}
+
 /** Map agent, go_to: goToLine("אזור 610") → "המפה הועברה אל אזור 610." */
 export function goToLine(placeLabel: string): string {
   return `המפה הועברה אל ${placeLabel}.`;

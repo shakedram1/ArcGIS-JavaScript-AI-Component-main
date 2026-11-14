@@ -33,8 +33,8 @@ import {
   MAP_FAILED_NOTE,
   MAP_SUPERSEDED_REPLY,
   FOCUS_CLEARED_REPLY,
+  HIDE_PARTIAL_REPLY,
   goToLine,
-  hiddenLine,
   shownLine,
 } from "../ta5500/prompts";
 import {
@@ -42,6 +42,8 @@ import {
   conversationText,
   failureReply,
   focusSummary,
+  hideReply,
+  hideTargets,
   mapStep,
   placeFromText,
   topicLayers,
@@ -134,23 +136,26 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
       const topicText = r.topic?.trim() ?? "";
       const layers = topicLayers(topicText, loc);
 
-      // hide acts on layers only; the place is resolved for go_to / show / filter.
+      // The place is resolved for every action (hide too: a place outside Tel Aviv-Yafo is declined).
       let place: Place | null = null;
       let geometry: Geometry | null = null;
-      if (r.action !== "hide" && placeText) {
+      let outside = false;
+      if (placeText) {
         const resolved = await resolvePlace(view, placeText, loc);
-        if ("outside" in resolved) {
-          return agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" });
-        }
-        ({ place, geometry } = resolved);
+        if ("outside" in resolved) outside = true;
+        else ({ place, geometry } = resolved);
       }
 
-      const step = mapStep(r.action, { placeText, place, layers });
+      const step = mapStep(r.action, { placeText, place, layers, outside });
       switch (step) {
+        case "outside":
+          return agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" });
         case "no_place":
           return agentResult({ output: NO_PLACE_NOTE, ok: true, summary: `${r.action}: place not resolved` });
         case "no_topic":
           return agentResult({ output: NO_TOPIC_REPLY, ok: true, summary: `${r.action}: no plan layer for the topic` });
+        case "hide_partial":
+          return agentResult({ output: HIDE_PARTIAL_REPLY, ok: true, summary: "hide: only part of a layer, not supported" });
 
         case "go_to": {
           try {
@@ -165,18 +170,22 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
         }
 
         case "hide": {
-          const keys = [...layers.keys()];
+          const { whole, partial } = hideTargets(layers);
           let hidden: LayerKey[];
           let st: FocusState | null;
           try {
             if (!view) throw new Error("map view unavailable");
-            ({ hidden, state: st } = hideLayers(view, keys));
+            ({ hidden, state: st } = hideLayers(view, whole));
           } catch (err) {
             return mapFailed(err, "hide");
           }
-          const missing = keys.filter((k) => !hidden.includes(k));
           return agentResult({
-            output: composeOutput(hiddenLine(labelsOf(hidden)), shownLine(null, [], labelsOf(missing))),
+            output: hideReply({
+              hidden: labelsOf(hidden),
+              missing: labelsOf(whole.filter((k) => !hidden.includes(k))),
+              partial: labelsOf(partial),
+              placeLabel: place?.label ?? null,
+            }),
             ok: true,
             summary: `hidden: ${hidden.length ? hidden.join(", ") : "none"}`,
             ...(hidden.length ? { sharedStatePatch: focusPatch(st) } : {}),
