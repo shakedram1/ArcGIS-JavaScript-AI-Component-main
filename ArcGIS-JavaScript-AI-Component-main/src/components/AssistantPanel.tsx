@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { installAssistantUserBubbleStyler } from "../utils/assistantStyler";
+import { FocusChip, clearFocusSafely } from "./FocusChip";
+import { focusStore } from "../ta5500/focus";
 
 // ── Hebrew assistant copy ────────────────────────────────────────────────────
 
@@ -114,6 +116,7 @@ export function AssistantPanel({
 
   const handleNewChat = async () => {
     await assistantRef.current?.clearChatHistory?.();
+    if (focusStore.get()) await clearFocusSafely();
     // clearChatHistory() also resets heading/description/entryMessage/suggestedPrompts,
     // so they need to be reapplied afterward or the greeting screen renders blank.
     applyAssistantCopyWithRetries();
@@ -169,6 +172,8 @@ export function AssistantPanel({
                       </div>
                     </calcite-notice>
                   )}
+
+                  <FocusChip />
 
                   {shouldRenderAssistant && (
                     <arcgis-assistant

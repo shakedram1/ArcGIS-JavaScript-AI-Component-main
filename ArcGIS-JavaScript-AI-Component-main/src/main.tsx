@@ -19,6 +19,7 @@ import "@esri/calcite-components/components/calcite-text-area";
 import "@esri/calcite-components/components/calcite-select";
 import "@esri/calcite-components/components/calcite-option";
 import "@esri/calcite-components/components/calcite-notice";
+import "@esri/calcite-components/components/calcite-chip";
 import "@arcgis/map-components/components/arcgis-map";
 import "@arcgis/map-components/components/arcgis-zoom";
 import "@arcgis/map-components/components/arcgis-home";

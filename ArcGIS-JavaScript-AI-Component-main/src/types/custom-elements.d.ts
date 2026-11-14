@@ -22,6 +22,7 @@ declare namespace JSX {
     "calcite-tree": any;
     "calcite-tree-item": any;
     "calcite-notice": any;
+    "calcite-chip": any;
     "calcite-select": any;
     "calcite-option": any;
     // ArcGIS Map components
