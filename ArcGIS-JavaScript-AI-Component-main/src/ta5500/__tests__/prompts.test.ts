@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as prompts from "../prompts";
 import {
   ANSWER_PROMPT,
   MAP_AGENT_DESCRIPTION,
@@ -52,10 +53,10 @@ test("prompts carry the key rules", () => {
 test("Hebrew copy is verbatim", () => {
   assert.equal(
     SCOPE_REPLY,
-    'אני עובד רק על תוכנית המתאר תא/5500 ועל מפת תל אביב-יפו. אפשר לשאול למשל: "מה מותר לבנות באזור 610?" או "הצג את אזורי התעסוקה ברמת אביב".',
+    'כאן אפשר לקבל מידע רק על תוכנית המתאר תא/5500 ועל מפת תל אביב-יפו. אפשר לשאול למשל: "מה מותר לבנות באזור 610?" או "הצג את אזורי התעסוקה ברמת אביב".',
   );
   assert.equal(NO_PLACE_NOTE, "לא זיהיתי את המקום שציינת, ולכן המפה לא שונתה.");
-  assert.equal(OUTSIDE_TA_REPLY, "המקום שציינת נמצא מחוץ לתל אביב-יפו, ואני עובד רק על תוכנית המתאר של העיר.");
+  assert.equal(OUTSIDE_TA_REPLY, "המקום שציינת נמצא מחוץ לתל אביב-יפו, וכאן אפשר לקבל מידע רק על תוכנית המתאר של העיר.");
   assert.equal(MAP_FAILED_NOTE, "לא הצלחתי לעדכן את המפה.");
 });
 
@@ -69,4 +70,10 @@ test("shownLine", () => {
   assert.equal(shownLine("אזור 610", [], ["תעסוקה", "מגורים"]), "לא נמצאו באזור: תעסוקה, מגורים.");
   assert.equal(shownLine(null, [], ["תעסוקה"]), "לא נמצאו במפה: תעסוקה.");
   assert.equal(shownLine(null, [], []), "");
+});
+
+test("no exported Hebrew string uses gendered first person", () => {
+  for (const [name, value] of Object.entries(prompts)) {
+    if (typeof value === "string") assert.ok(!value.includes("אני עובד"), name);
+  }
 });
