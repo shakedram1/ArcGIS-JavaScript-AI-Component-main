@@ -1,0 +1,233 @@
+// TA5500 Map agent (spec §5.2, §5.5): one map action on the Tel Aviv-Yafo master plan map — go to a place,
+// show / filter / hide plan layers, reset. The LLM proposes { action, place, topic }; code validates: places
+// resolve to plan codes or a geocoded place inside Tel Aviv-Yafo, topics resolve to plan layers only
+// (planFlow.topicLayers). Nothing outside the plan is ever acted on.
+import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
+import type { RunnableConfig } from "@langchain/core/runnables";
+import { invokeStructuredPrompt } from "@arcgis/ai-components/utils/index.js";
+import type Geometry from "@arcgis/core/geometry/Geometry.js";
+import type MapView from "@arcgis/core/views/MapView.js";
+import { z } from "zod";
+import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
+import { getPlanLocations } from "../ta5500/ragClient";
+import type { PlanLocations } from "../ta5500/types";
+import { TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
+import { planFocus, focusStore, type FocusState, type Place } from "../ta5500/focus";
+import {
+  getView,
+  geocodeInTelAviv,
+  resolvePlaceGeometry,
+  keepLayersWithFeatures,
+  applyFocus,
+  resetFocus,
+  hideLayers,
+  FocusSupersededError,
+} from "../ta5500/mapFocus";
+import {
+  MAP_AGENT_DESCRIPTION,
+  MAP_RESOLVE_PROMPT,
+  NO_PLACE_NOTE,
+  NO_TOPIC_NOTE,
+  NO_TOPIC_REPLY,
+  OUTSIDE_TA_REPLY,
+  MAP_FAILED_NOTE,
+  MAP_SUPERSEDED_REPLY,
+  FOCUS_CLEARED_REPLY,
+  goToLine,
+  hiddenLine,
+  shownLine,
+} from "../ta5500/prompts";
+import {
+  composeOutput,
+  conversationText,
+  failureReply,
+  focusSummary,
+  mapStep,
+  placeFromText,
+  topicLayers,
+} from "../ta5500/planFlow";
+
+const AGENT_ID = "ta5500-map";
+const TAG = "ta5500 map agent";
+
+const resolveSchema = z.object({
+  action: z.enum(["go_to", "show", "hide", "filter", "reset"]),
+  place: z.string().nullable(),
+  topic: z.string().nullable(),
+});
+
+const labelsOf = (keys: LayerKey[]) => keys.map((k) => TA5500_LAYERS[k].label);
+
+const focusPatch = (s: FocusState | null) =>
+  ({ ta5500Focus: { value: s ? { label: s.label, layers: s.layers.map((l) => l.layerKey) } : null } });
+
+/** A newer map call replaced this one: applyFocus superseded, or view.goTo interrupted by another navigation. */
+const isSuperseded = (err: unknown) => err instanceof FocusSupersededError || (err as { name?: string })?.name === "AbortError";
+
+function mapFailed(err: unknown, summary: string) {
+  if (isSuperseded(err)) return agentResult({ output: MAP_SUPERSEDED_REPLY, ok: true, summary: `${summary}: superseded` });
+  console.warn(`${TAG}: map update failed:`, err);
+  // The map change is the whole point of the turn, so a failed map update fails the run.
+  return agentResult({ output: MAP_FAILED_NOTE, ok: false, summary: `${summary}: map update failed` });
+}
+
+type Resolved = { place: Place | null; geometry: Geometry | null } | { outside: true };
+
+/** Same order as the Plan agent: plan codes / entities first, then the Tel Aviv geocoder. Geocoder errors → no place. */
+async function resolvePlace(view: MapView | null, text: string, loc: PlanLocations): Promise<Resolved> {
+  if (!text) return { place: null, geometry: null };
+  const coded = placeFromText(text, loc);
+  if (coded) {
+    const geometry = view ? await resolvePlaceGeometry(view, coded).catch(() => null) : null;
+    return { place: coded, geometry };
+  }
+  if (!view) return { place: null, geometry: null };
+  const geo = await geocodeInTelAviv(view, text).catch((err) => {
+    console.warn(`${TAG}: geocode failed:`, err);
+    return null;
+  });
+  if (geo && "outside" in geo) return { outside: true };
+  return geo ? { place: geo.place, geometry: geo.geometry } : { place: null, geometry: null };
+}
+
+export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: string }): void {
+  const baseUrl = ctx.baseUrl;
+
+  const createGraph = () => {
+    const state = Annotation.Root({ ...agentRuntimeChannels() });
+    type S = typeof state.State;
+
+    async function run(s: S, config?: RunnableConfig) {
+      let r: z.infer<typeof resolveSchema>;
+      let locations: PlanLocations | null = null;
+      try {
+        const { request, messages } = readAgentRequest(s);
+        r = await invokeStructuredPrompt({
+          promptText: MAP_RESOLVE_PROMPT,
+          inputVariables: {
+            request: conversationText(messages, request),
+            currentFocus: focusStore.get()?.label ?? "none",
+          },
+          schema: resolveSchema,
+          temperature: 0,
+          config,
+        });
+        if (r.action !== "reset") locations = await getPlanLocations(baseUrl);
+      } catch (err) {
+        return agentResult(failureReply(err, TAG));
+      }
+
+      const view = getView();
+
+      if (r.action === "reset") {
+        try {
+          if (view) await resetFocus(view);
+          else focusStore.clear();
+        } catch (err) {
+          return mapFailed(err, "reset");
+        }
+        return agentResult({ output: FOCUS_CLEARED_REPLY, ok: true, summary: "focus cleared", sharedStatePatch: focusPatch(null) });
+      }
+
+      const loc = locations!;
+      const placeText = r.place?.trim() ?? "";
+      const topicText = r.topic?.trim() ?? "";
+      const layers = topicLayers(topicText, loc);
+
+      // hide acts on layers only; the place is resolved for go_to / show / filter.
+      let place: Place | null = null;
+      let geometry: Geometry | null = null;
+      if (r.action !== "hide" && placeText) {
+        const resolved = await resolvePlace(view, placeText, loc);
+        if ("outside" in resolved) {
+          return agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" });
+        }
+        ({ place, geometry } = resolved);
+      }
+
+      const step = mapStep(r.action, { placeText, place, layers });
+      switch (step) {
+        case "no_place":
+          return agentResult({ output: NO_PLACE_NOTE, ok: true, summary: `${r.action}: place not resolved` });
+        case "no_topic":
+          return agentResult({ output: NO_TOPIC_REPLY, ok: true, summary: `${r.action}: no plan layer for the topic` });
+
+        case "go_to": {
+          try {
+            if (!view) throw new Error("map view unavailable");
+            const target = geometry?.extent?.clone().expand(1.2);
+            if (!target) throw new Error(`no geometry for ${place!.label}`);
+            await view.goTo(target);
+          } catch (err) {
+            return mapFailed(err, "go_to");
+          }
+          return agentResult({ output: goToLine(place!.label), ok: true, summary: `go_to ${place!.label}` });
+        }
+
+        case "hide": {
+          const keys = [...layers.keys()];
+          let hidden: LayerKey[];
+          let st: FocusState | null;
+          try {
+            if (!view) throw new Error("map view unavailable");
+            ({ hidden, state: st } = hideLayers(view, keys));
+          } catch (err) {
+            return mapFailed(err, "hide");
+          }
+          const missing = keys.filter((k) => !hidden.includes(k));
+          return agentResult({
+            output: composeOutput(hiddenLine(labelsOf(hidden)), shownLine(null, [], labelsOf(missing))),
+            ok: true,
+            summary: `hidden: ${hidden.length ? hidden.join(", ") : "none"}`,
+            ...(hidden.length ? { sharedStatePatch: focusPatch(st) } : {}),
+          });
+        }
+
+        case "focus": {
+          let line = "";
+          let shown: LayerKey[] = [];
+          let applied: FocusState | null = null;
+          try {
+            if (!view) throw new Error("map view unavailable");
+            const { kept, skipped } = layers.size
+              ? await keepLayersWithFeatures(view, layers, geometry)
+              : { kept: layers, skipped: [] as LayerKey[] };
+            const plan = planFocus(place, kept);
+            if (plan.case !== "none") {
+              applied = await applyFocus(view, plan, place, geometry);
+              shown = applied.layers.map((l) => l.layerKey);
+            }
+            line = shownLine(place?.label ?? null, labelsOf(shown), labelsOf(skipped));
+          } catch (err) {
+            return mapFailed(err, r.action);
+          }
+          const topicNote = topicText && !layers.size ? NO_TOPIC_NOTE : "";
+          return agentResult({
+            output: composeOutput(line, topicNote) || NO_TOPIC_REPLY,
+            ok: true,
+            summary: focusSummary(place, shown),
+            ...(applied ? { sharedStatePatch: focusPatch(applied) } : {}),
+          });
+        }
+      }
+    }
+
+    return new StateGraph(state).addNode("run", run).addEdge(START, "run").addEdge("run", END);
+  };
+
+  const agent = {
+    id: AGENT_ID,
+    name: "TA5500 Map",
+    description: MAP_AGENT_DESCRIPTION,
+    createGraph,
+    workspace: {},
+  } as any;
+
+  const existing = assistant.querySelector(`[data-agent-id="${AGENT_ID}"]`);
+  if (existing) existing.remove();
+
+  const agentEl = document.createElement("arcgis-assistant-agent") as any;
+  agentEl.setAttribute("data-agent-id", AGENT_ID);
+  agentEl.agent = agent;
+  assistant.appendChild(agentEl);
+}

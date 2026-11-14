@@ -2,10 +2,12 @@
 // derived from validated filters, search filters, answer context, map candidates and the final reply.
 // Pure: no @arcgis/* runtime imports, no DOM.
 import type { BaseMessage } from "@langchain/core/messages";
-import { type LayerKey } from "./layers";
+import { hasWord, matchLayerTopics, matchTopicOverrides, type LayerKey } from "./layers";
 import { citedSections, layersForSections, validateRequest } from "./planLogic";
 import type { Place } from "./focus";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "./types";
+import { PlanServiceError } from "./ragClient";
+import { REQUEST_FAILED_REPLY } from "./prompts";
 
 const FILTER_KEYS: (keyof PlanFilters)[] = ["areas", "entities", "zone_types", "headings"];
 
@@ -126,4 +128,69 @@ export function composeOutput(answer: string, ...extra: (string | null | undefin
 
 export function focusSummary(place: Place | null, layers: LayerKey[]): string {
   return `${place ? place.label : "no place"}; layers: ${layers.length ? layers.join(", ") : "none"}`;
+}
+
+/** Reply for an error that ends a TA5500 agent run: the plan-service message, or a generic failure. */
+export function failureReply(err: unknown, tag: string): { output: string; ok: false } {
+  if (err instanceof PlanServiceError) {
+    console.warn(`${tag} plan service:`, err.detail ?? err.message);
+    return { output: err.message, ok: false };
+  }
+  console.warn(`${tag}:`, err);
+  return { output: REQUEST_FAILED_REPLY, ok: false };
+}
+
+// ---------- Map agent (spec §5.2, §5.5) ----------
+
+/** A place written as a plan code or plan entity (area, sub-area, street), validated against the plan data. */
+export function placeFromText(text: string | null | undefined, loc: PlanLocations): Place | null {
+  const t = (text ?? "").trim();
+  if (!t) return null;
+  return placeFromFilters(validateRequest({ areas: [t], entities: [t] }, loc).filters, loc);
+}
+
+const categoryCore = (title: string) => title.replace(/^אזורי?\s+/, "").trim();
+
+/**
+ * Plan layers (with feature codes) for a map topic in the user's words. Only plan data decides: a zone type id
+ * or exact title (validateRequest); otherwise a zone category title such as "אזורי מגורים" / "מגורים" and the
+ * topic overrides and the layers named as a whole ("שכבת המוקדים", codes [] = the whole layer). Empty when nothing matches.
+ */
+export function topicLayers(topic: string | null | undefined, loc: PlanLocations): Map<LayerKey, string[]> {
+  const t = (topic ?? "").trim();
+  const out = new Map<LayerKey, string[]>();
+  if (!t) return out;
+  // An exact zone type id or title is specific: categories, overrides and layer names are only matched otherwise.
+  const exact = validateRequest({ zone_types: [t] }, loc).filters.zone_types ?? [];
+  const zoneTypes = exact.length
+    ? exact
+    : [
+        ...loc.zone_categories.filter((c) => hasWord(t, c.title) || (categoryCore(c.title) && hasWord(t, categoryCore(c.title)))).map((c) => c.id),
+        ...(matchTopicOverrides(t).zone_types ?? []),
+      ];
+  for (const [key, codes] of layersForSections([...new Set(zoneTypes)], loc.gis_codes)) out.set(key, codes);
+  if (!exact.length) for (const key of matchLayerTopics(t)) out.set(key, []);
+  return out;
+}
+
+export type MapAction = "go_to" | "show" | "hide" | "filter" | "reset";
+export type MapStep = "reset" | "go_to" | "focus" | "hide" | "no_place" | "no_topic";
+
+/**
+ * What the Map agent does (never acts on things not in the plan):
+ * - reset → reset;
+ * - hide → hide the topic's layers, or no_topic;
+ * - go_to → go to the resolved place, or no_place;
+ * - show / filter → no_place when a place was named but not resolved (the map stays unchanged); focus when the
+ *   topic matched plan layers or a place resolved; otherwise no_topic.
+ */
+export function mapStep(
+  action: MapAction,
+  s: { placeText: string | null | undefined; place: Place | null; layers: Map<LayerKey, string[]> },
+): MapStep {
+  if (action === "reset") return "reset";
+  if (action === "hide") return s.layers.size ? "hide" : "no_topic";
+  if (action === "go_to") return s.place ? "go_to" : "no_place";
+  if ((s.placeText ?? "").trim() && !s.place) return "no_place";
+  return s.layers.size || s.place ? "focus" : "no_topic";
 }

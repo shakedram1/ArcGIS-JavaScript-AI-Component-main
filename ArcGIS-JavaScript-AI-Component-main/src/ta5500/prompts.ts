@@ -104,6 +104,29 @@ export const OUTSIDE_TA_REPLY = "המקום שציינת נמצא מחוץ לת�
 
 export const MAP_FAILED_NOTE = "לא הצלחתי לעדכן את המפה.";
 
+export const FOCUS_CLEARED_REPLY = "המיקוד נוקה והמפה חזרה למצבה הקודם.";
+
+export const REQUEST_FAILED_REPLY = "לא ניתן היה לעבד את הבקשה כרגע. נסו שוב.";
+
+/** Map agent: a show/filter/hide topic that matches no plan layer or topic, and no place to act on. */
+export const NO_TOPIC_REPLY = "לא נמצאו בתוכנית שכבה או נושא מתאימים לבקשה, ולכן המפה לא שונתה.";
+
+/** Map agent: the topic matched nothing in the plan, but the place was shown. */
+export const NO_TOPIC_NOTE = "לא נמצאה בתוכנית שכבה מתאימה לנושא שצוין.";
+
+/** Map agent: a newer map request replaced this one before it was applied. */
+export const MAP_SUPERSEDED_REPLY = "התקבלה בקשת מפה חדשה יותר, ולכן הבקשה הזו לא הוחלה.";
+
+/** Map agent, go_to: goToLine("אזור 610") → "המפה הועברה אל אזור 610." */
+export function goToLine(placeLabel: string): string {
+  return `המפה הועברה אל ${placeLabel}.`;
+}
+
+/** Map agent, hide: hiddenLine(["מוקדי פיתוח ושימוש עירוניים"]) → "הוסתרו במפה: מוקדי פיתוח ושימוש עירוניים." */
+export function hiddenLine(layerLabels: string[]): string {
+  return layerLabels.length ? `הוסתרו במפה: ${layerLabels.join(", ")}.` : "";
+}
+
 /**
  * The line added to a reply saying what the map shows (spec §5.3 step 4.5).
  * shownLine("אזור 610", ["אזורי ייעוד"], ["תעסוקה"]) → "מוצגים באזור 610: אזורי ייעוד. לא נמצאו באזור: תעסוקה."

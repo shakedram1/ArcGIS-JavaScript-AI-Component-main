@@ -7,7 +7,7 @@ import type Geometry from "@arcgis/core/geometry/Geometry.js";
 import { fromJSON as geometryFromJSON } from "@arcgis/core/geometry/support/jsonUtils.js";
 import { z } from "zod";
 import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
-import { getPlanLocations, searchPlan, PlanServiceError } from "../ta5500/ragClient";
+import { getPlanLocations, searchPlan } from "../ta5500/ragClient";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "../ta5500/types";
 import { matchTopicOverrides, TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
 import { validateRequest } from "../ta5500/planLogic";
@@ -28,6 +28,7 @@ import {
   NO_PLACE_NOTE,
   OUTSIDE_TA_REPLY,
   MAP_FAILED_NOTE,
+  FOCUS_CLEARED_REPLY,
   shownLine,
 } from "../ta5500/prompts";
 import {
@@ -35,6 +36,7 @@ import {
   candidateLayers,
   composeOutput,
   conversationText,
+  failureReply,
   focusSummary,
   mergeFilters,
   placeFromFilters,
@@ -42,8 +44,6 @@ import {
 } from "../ta5500/planFlow";
 
 const AGENT_ID = "ta5500-plan";
-const CLEARED_REPLY = "המיקוד נוקה והמפה חזרה למצבה הקודם.";
-const REQUEST_FAILED = "לא ניתן היה לעבד את הבקשה כרגע. נסו שוב.";
 
 const resolveSchema = z.object({
   question: z.string(),
@@ -63,12 +63,7 @@ const answerSchema = z.object({
 const last = <T>(fallback: () => T) => Annotation<T>({ reducer: (_prev, next) => next, default: fallback });
 
 function failure(err: unknown) {
-  if (err instanceof PlanServiceError) {
-    console.warn("ta5500 plan service:", err.detail ?? err.message);
-    return agentResult({ output: err.message, ok: false });
-  }
-  console.warn("ta5500 plan agent:", err);
-  return agentResult({ output: REQUEST_FAILED, ok: false });
+  return agentResult(failureReply(err, "ta5500 plan agent"));
 }
 
 /** Geometry of the stored focus place: its saved geometry for a geocoded place, else from the plan layers. */
@@ -125,7 +120,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           else focusStore.clear();
           return {
             done: true,
-            ...agentResult({ output: CLEARED_REPLY, ok: true, summary: "focus cleared", sharedStatePatch: { ta5500Focus: { value: null } } }),
+            ...agentResult({ output: FOCUS_CLEARED_REPLY, ok: true, summary: "focus cleared", sharedStatePatch: { ta5500Focus: { value: null } } }),
           };
         }
 

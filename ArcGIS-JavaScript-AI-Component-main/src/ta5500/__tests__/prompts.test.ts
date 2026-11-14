@@ -14,6 +14,13 @@ import {
   SCOPE_AGENT_DESCRIPTION,
   SCOPE_REPLY,
   shownLine,
+  FOCUS_CLEARED_REPLY,
+  goToLine,
+  hiddenLine,
+  MAP_SUPERSEDED_REPLY,
+  NO_TOPIC_NOTE,
+  NO_TOPIC_REPLY,
+  REQUEST_FAILED_REPLY,
 } from "../prompts";
 
 test("descriptions are non-empty and say when not to use the agent", () => {
@@ -76,4 +83,15 @@ test("no exported Hebrew string uses gendered first person", () => {
   for (const [name, value] of Object.entries(prompts)) {
     if (typeof value === "string") assert.ok(!value.includes("אני עובד"), name);
   }
+});
+
+test("Map agent copy", () => {
+  assert.equal(FOCUS_CLEARED_REPLY, "המיקוד נוקה והמפה חזרה למצבה הקודם.");
+  assert.equal(REQUEST_FAILED_REPLY, "לא ניתן היה לעבד את הבקשה כרגע. נסו שוב.");
+  assert.equal(NO_TOPIC_REPLY, "לא נמצאו בתוכנית שכבה או נושא מתאימים לבקשה, ולכן המפה לא שונתה.");
+  assert.equal(NO_TOPIC_NOTE, "לא נמצאה בתוכנית שכבה מתאימה לנושא שצוין.");
+  assert.equal(MAP_SUPERSEDED_REPLY, "התקבלה בקשת מפה חדשה יותר, ולכן הבקשה הזו לא הוחלה.");
+  assert.equal(goToLine("אזור 610"), "המפה הועברה אל אזור 610.");
+  assert.equal(hiddenLine(["מוקדי פיתוח ושימוש עירוניים"]), "הוסתרו במפה: מוקדי פיתוח ושימוש עירוניים.");
+  assert.equal(hiddenLine([]), "");
 });

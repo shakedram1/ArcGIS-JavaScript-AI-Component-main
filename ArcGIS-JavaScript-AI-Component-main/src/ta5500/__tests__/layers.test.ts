@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findTa5500Layers, matchTa5500LayerUrl, matchTopicOverrides, TA5500_LAYERS, TOPIC_OVERRIDES } from "../layers";
+import { findTa5500Layers, matchLayerTopics, matchTa5500LayerUrl, matchTopicOverrides, TA5500_LAYERS, TOPIC_OVERRIDES } from "../layers";
 
 const BASE = "https://services3.arcgis.com/abc/arcgis/rest/services/TA5500_%D7%A4%D7%95%D7%9C%D7%999%D7%92%D7%95%D7%A0%D7%99%D7%9D1/FeatureServer";
 
@@ -38,4 +38,14 @@ test("topic overrides do not leak config arrays", () => {
   r.zone_types!.push("x");
   assert.deepEqual(TOPIC_OVERRIDES[0].filters.zone_types, ["3.3", "3.4.1"]);
   assert.equal(TA5500_LAYERS.areas.layerId, 122);
+});
+
+test("layer topics by name", () => {
+  assert.deepEqual(matchLayerTopics("תסתיר את שכבת המוקדים"), ["foci"]);
+  assert.deepEqual(matchLayerTopics("אזורי ייעוד"), ["zones"]);
+  assert.deepEqual(matchLayerTopics("מרחבי תכנון"), ["spaces"]);
+  assert.deepEqual(matchLayerTopics("הוראות רחוב מיוחדות"), ["streets"]);
+  assert.deepEqual(matchLayerTopics("והתעסוקה"), ["employment"]);
+  assert.deepEqual(matchLayerTopics("מגורים"), []);
+  assert.deepEqual(matchLayerTopics(""), []);
 });

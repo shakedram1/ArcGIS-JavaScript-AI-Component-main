@@ -285,3 +285,33 @@ export async function applyFocus(
   if (goToTarget) await view.goTo(goToTarget).catch(() => undefined);
   return state;
 }
+
+/**
+ * Map agent "hide": sets visible = false on every map instance of the given TA5500 layers. The previous
+ * visibility is recorded in the focus store's previousVisibility (merged into the current focus, the first
+ * recorded value per layer wins; or in a new place-less focus), so resetFocus restores it and a new
+ * applyFocus first restores it before applying. Supersedes an applyFocus still in flight.
+ * Returns the keys that have at least one instance on the map (none: the map and the store are unchanged).
+ */
+export function hideLayers(view: MapView, keys: LayerKey[]): { hidden: LayerKey[]; state: FocusState | null } {
+  callToken++;
+  const all = listTa5500Layers(view);
+  const prev = focusStore.get();
+  const previousVisibility: Record<string, boolean> = { ...(prev?.previousVisibility ?? {}) };
+  const hidden: LayerKey[] = [];
+  for (const key of keys) {
+    const instances = all.get(key) ?? [];
+    if (instances.length) hidden.push(key);
+    for (const layer of instances) {
+      if (!layer.visible) continue;
+      if (!(layer.uid in previousVisibility)) previousVisibility[layer.uid] = true;
+      layer.visible = false;
+    }
+  }
+  if (!hidden.length) return { hidden, state: prev };
+  const state: FocusState = prev
+    ? { ...prev, previousVisibility }
+    : { place: null, geometryJson: null, layers: [], previousVisibility, label: `הוסתרו: ${hidden.map((k) => TA5500_LAYERS[k].label).join(", ")}` };
+  focusStore.set(state);
+  return { hidden, state };
+}

@@ -2,14 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
-import { parseSearchPlanResult } from "../ragClient";
+import { parseSearchPlanResult, PlanServiceError, PLAN_SERVICE_UNAVAILABLE } from "../ragClient";
+import { REQUEST_FAILED_REPLY } from "../prompts";
+import type { LayerKey } from "../layers";
 import { validateRequest } from "../planLogic";
 import {
   answerContext,
   candidateLayers,
   composeOutput,
   conversationText,
+  failureReply,
   focusSummary,
+  mapStep,
+  placeFromText,
+  topicLayers,
   mergeFilters,
   placeFromFilters,
   placeSearchFilters,
@@ -82,4 +88,68 @@ test("composeOutput and focusSummary", () => {
   assert.equal(composeOutput("תשובה", "מוצגים במפה: x.", "", null, "הערה"), "תשובה\n\nמוצגים במפה: x.\n\nהערה");
   assert.equal(focusSummary(null, []), "no place; layers: none");
   assert.equal(focusSummary({ kind: "area", codes: ["105"], label: "אזור 105" }, ["zones", "foci"]), "אזור 105; layers: zones, foci");
+});
+
+test("failureReply: plan-service message, else the generic reply", () => {
+  const warn = console.warn;
+  console.warn = () => undefined;
+  try {
+    const e = new PlanServiceError("down");
+    assert.deepEqual(failureReply(e, "t"), { output: e.message, ok: false });
+    assert.equal(e.message, PLAN_SERVICE_UNAVAILABLE);
+    assert.deepEqual(failureReply(new Error("x"), "t"), { output: REQUEST_FAILED_REPLY, ok: false });
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test("placeFromText: plan codes and entities only", () => {
+  assert.deepEqual(placeFromText("105", loc), { kind: "area", codes: ["105"], label: "אזור 105 – אפקה" });
+  assert.equal(placeFromText("101א", loc)?.kind, "subarea");
+  assert.deepEqual(placeFromText("ר-11", loc)?.codes, ["ר-11"]);
+  assert.equal(placeFromText("רמת אביב", loc), null);
+  assert.equal(placeFromText("9999", loc), null);
+  assert.equal(placeFromText(null, loc), null);
+  assert.equal(placeFromText("  ", loc), null);
+});
+
+test("topicLayers: plan data, overrides and layer names only", () => {
+  // Zone category by title and by its core word.
+  assert.deepEqual(topicLayers("אזורי מגורים", loc).get("zones"), ["322", "323", "324", "325"]);
+  assert.deepEqual(topicLayers("מגורים", loc).get("zones"), ["322", "323", "324", "325"]);
+  // Exact zone type id / title (validateRequest).
+  assert.deepEqual([...topicLayers("3.3.5", loc)], [["foci", ["335"]]]);
+  assert.deepEqual([...topicLayers("מוקד תעסוקה חדש", loc)], [["foci", ["335"]]]);
+  // Topic override (תעסוקה → 3.3, 3.4.1) plus the employment layer named by its label (whole layer).
+  const emp = topicLayers("אזורי תעסוקה", loc);
+  assert.ok(emp.get("zones")?.includes("332") && emp.get("zones")?.includes("341"));
+  assert.deepEqual(emp.get("employment"), []);
+  // Whole layers by name, with Hebrew prefixes.
+  assert.deepEqual([...topicLayers("שכבת המוקדים", loc)], [["foci", []]]);
+  assert.deepEqual([...topicLayers("רחובות מיוחדים", loc)], [["streets", []]]);
+  // Not in the plan.
+  assert.equal(topicLayers("מזג אוויר", loc).size, 0);
+  assert.equal(topicLayers("בתי קפה", loc).size, 0);
+  assert.equal(topicLayers(null, loc).size, 0);
+  assert.equal(topicLayers("", loc).size, 0);
+});
+
+test("mapStep: never acts on things not in the plan", () => {
+  const place = { kind: "area" as const, codes: ["105"], label: "אזור 105" };
+  const some = new Map<LayerKey, string[]>([["foci", []]]);
+  const none = new Map<LayerKey, string[]>();
+  assert.equal(mapStep("reset", { placeText: null, place: null, layers: none }), "reset");
+  assert.equal(mapStep("hide", { placeText: null, place: null, layers: some }), "hide");
+  assert.equal(mapStep("hide", { placeText: "105", place, layers: none }), "no_topic");
+  assert.equal(mapStep("go_to", { placeText: "105", place, layers: none }), "go_to");
+  assert.equal(mapStep("go_to", { placeText: "מקום", place: null, layers: some }), "no_place");
+  assert.equal(mapStep("go_to", { placeText: null, place: null, layers: none }), "no_place");
+  for (const a of ["show", "filter"] as const) {
+    assert.equal(mapStep(a, { placeText: null, place: null, layers: some }), "focus");
+    assert.equal(mapStep(a, { placeText: "105", place, layers: none }), "focus");
+    assert.equal(mapStep(a, { placeText: "105", place, layers: some }), "focus");
+    assert.equal(mapStep(a, { placeText: "מקום", place: null, layers: some }), "no_place");
+    assert.equal(mapStep(a, { placeText: null, place: null, layers: none }), "no_topic");
+    assert.equal(mapStep(a, { placeText: "  ", place: null, layers: none }), "no_topic");
+  }
 });
