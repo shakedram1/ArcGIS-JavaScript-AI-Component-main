@@ -1,4 +1,4 @@
-import { invokeToolPrompt } from "@arcgis/ai-orchestrator";
+import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";

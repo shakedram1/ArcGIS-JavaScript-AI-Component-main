@@ -1,5 +1,5 @@
 import { StateGraph, Annotation as ANNOTATION, START, END } from "@langchain/langgraph/web";
-import { invokeToolPrompt } from "@arcgis/ai-orchestrator";
+import { invokeToolPrompt } from "@arcgis/ai-components/utils/index.js";
 import { HumanMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
