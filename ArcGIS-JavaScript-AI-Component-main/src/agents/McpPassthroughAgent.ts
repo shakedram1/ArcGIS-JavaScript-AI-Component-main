@@ -3,7 +3,8 @@ import { HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { z } from "zod";
-import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, normalizeUrl, prioritizeRequestedGeoFocus, resolveHubServersUrl, type McpToolDef } from "./mcpAgentCore";
+import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, prioritizeRequestedGeoFocus, type McpToolDef } from "./mcpAgentCore";
+import { abortActiveMcpRequests, callMcpTool, clearMcpCaches, isAbortLikeError, listHubServers, listMcpTools, type HubServerSummary } from "../utils/mcpClient";
 import { inputSchemaToZod, normalizeToolArgsForCall, truncateDescription } from "../utils/mcpZodSchema";
 import { clearMcpGeoLayer, renderMcpGeoEntities, type GeoEntity } from "../utils/mcpGeoRenderer";
 import { setLastAssistantGeoSnapshot } from "../utils/assistantState";
@@ -19,21 +20,10 @@ interface ToolAliasMap {
   [alias: string]: string;
 }
 
-interface HubServerSummary {
-  id: string;
-  label: string;
-  status?: string;
-}
-
 let latestGeoRenderToken = 0;
 let pendingGeoRenderTimer: ReturnType<typeof setTimeout> | null = null;
 let latestMcpRunToken = 0;
 const cancelBoundAssistants = new WeakSet<HTMLElement>();
-const activeMcpAbortControllers = new Set<AbortController>();
-const MCP_DISCOVERY_TIMEOUT_MS = 8_000;
-const MCP_TOOL_CALL_TIMEOUT_MS = 15_000;
-const MCP_NOTIFY_TIMEOUT_MS = 3_000;
-const HUB_SERVERS_TIMEOUT_MS = 4_000;
 // Hard cap on agent<->tools round trips per run. LangGraph's own default
 // recursionLimit (25 graph steps ≈ ~12 rounds) is the only thing that stopped
 // a runaway loop before this — and it crashes with an unhandled error instead
@@ -224,34 +214,8 @@ async function extractAndSelectGeoEntities(
   }
 }
 
-function beginMcpAbortController(timeoutMs?: number): AbortController {
-  const controller = new AbortController();
-  activeMcpAbortControllers.add(controller);
-  if (timeoutMs && timeoutMs > 0) {
-    globalThis.setTimeout(() => controller.abort(`timeout:${timeoutMs}`), timeoutMs);
-  }
-  return controller;
-}
-
-function endMcpAbortController(controller: AbortController): void {
-  activeMcpAbortControllers.delete(controller);
-}
-
-function abortActiveMcpRequests(): void {
-  for (const controller of activeMcpAbortControllers) {
-    controller.abort();
-  }
-  activeMcpAbortControllers.clear();
-}
-
 function isMcpRunStale(runToken: number): boolean {
   return runToken !== latestMcpRunToken;
-}
-
-function isAbortLikeError(error: unknown): boolean {
-  const name = (error as any)?.name;
-  const message = String((error as any)?.message ?? "");
-  return name === "AbortError" || /abort/i.test(message);
 }
 
 export function cancelPendingMcpGeoRender(): void {
@@ -273,189 +237,10 @@ function bindAssistantCancel(assistant: HTMLElement): void {
   cancelBoundAssistants.add(assistant);
 }
 
-function toRelayUrl(absoluteUrl: string): string {
-  try {
-    const url = new URL(absoluteUrl);
-    const scheme = url.protocol.replace(":", "");
-    return `/dev-mcp-relay/${scheme}/${url.host}${url.pathname}`;
-  } catch {
-    return absoluteUrl;
-  }
-}
-
-function resolveFetchUrl(url: string): string {
-  return /^https?:\/\//i.test(url) ? toRelayUrl(url) : url;
-}
-
-async function mcpPost(fetchUrl: string, body: Record<string, unknown>): Promise<unknown> {
-  const timeoutMs = typeof body.__timeoutMs === "number" ? Number(body.__timeoutMs) : undefined;
-  const payload = { ...body } as Record<string, unknown>;
-  delete payload.__timeoutMs;
-  const controller = beginMcpAbortController(timeoutMs);
-  try {
-    const response = await fetch(fetchUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      let detail = "";
-      try {
-        detail = (await response.text()).slice(0, 300);
-      } catch {}
-      throw new Error(`MCP server returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
-    }
-
-    const contentType = response.headers.get("Content-Type") ?? "";
-    if (contentType.includes("text/event-stream")) {
-      const text = await response.text();
-      for (const line of text.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        const parsed: any = JSON.parse(line.slice(6).trim());
-        if (parsed.error) throw new Error(String(parsed.error.message ?? "MCP RPC error"));
-        if ("result" in parsed) return parsed.result;
-      }
-      throw new Error("No JSON-RPC result found in MCP SSE response.");
-    }
-
-    const json: any = await response.json();
-    if (json.error) throw new Error(String(json.error.message ?? "MCP RPC error"));
-    return json.result;
-  } catch (error) {
-    if (isAbortLikeError(error) && timeoutMs) {
-      throw new Error(`MCP request timed out after ${Math.round(timeoutMs / 1000)}s.`);
-    }
-    throw error;
-  } finally {
-    endMcpAbortController(controller);
-  }
-}
-
-function mcpRequest(endpointUrl: string, method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
-  const url = resolveFetchUrl(normalizeUrl(endpointUrl));
-  return mcpPost(url, { jsonrpc: "2.0", id: 1, method, params, __timeoutMs: timeoutMs });
-}
-
-async function mcpNotify(endpointUrl: string, method: string, params: Record<string, unknown> = {}): Promise<void> {
-  const url = resolveFetchUrl(normalizeUrl(endpointUrl));
-  const controller = beginMcpAbortController(MCP_NOTIFY_TIMEOUT_MS);
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", method, params }),
-    signal: controller.signal,
-  }).catch(() => {}).finally(() => {
-    endMcpAbortController(controller);
-  });
-}
-
-const initializedEndpoints = new Set<string>();
-const mcpToolsCache = new Map<string, { tools: McpToolDef[]; at: number }>();
-const hubServersCache = new Map<string, { servers: HubServerSummary[]; at: number }>();
-const TOOL_CACHE_TTL_MS = 300_000;
-const HUB_SERVERS_CACHE_TTL_MS = 60_000;
-
-async function ensureInitialized(endpointUrl: string): Promise<void> {
-  const key = normalizeUrl(endpointUrl);
-  if (initializedEndpoints.has(key)) return;
-  await mcpRequest(endpointUrl, "initialize", {
-    protocolVersion: "2024-11-05",
-    capabilities: { tools: {} },
-    clientInfo: { name: "mcp-passthrough-agent", version: "1.0.0" },
-  }, MCP_DISCOVERY_TIMEOUT_MS);
-  await mcpNotify(endpointUrl, "notifications/initialized");
-  initializedEndpoints.add(key);
-}
-
-function clearMcpCaches(endpointUrl: string): void {
-  const key = normalizeUrl(endpointUrl);
-  initializedEndpoints.delete(key);
-  mcpToolsCache.delete(key);
-  hubServersCache.delete(key);
-}
-
-async function listMcpTools(endpointUrl: string): Promise<McpToolDef[]> {
-  const key = normalizeUrl(endpointUrl);
-  const cached = mcpToolsCache.get(key);
-  if (cached && Date.now() - cached.at < TOOL_CACHE_TTL_MS) {
-    return cached.tools;
-  }
-  await ensureInitialized(endpointUrl);
-  const result: any = await mcpRequest(endpointUrl, "tools/list", {}, MCP_DISCOVERY_TIMEOUT_MS);
-  const tools: McpToolDef[] = Array.isArray(result?.tools) ? result.tools : [];
-  mcpToolsCache.set(key, { tools, at: Date.now() });
-  return tools;
-}
-
-function extractText(content: unknown): string {
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (part && typeof part === "object" && "text" in part && typeof (part as any).text === "string") {
-          return (part as any).text;
-        }
-        return JSON.stringify(part);
-      })
-      .join("\n")
-      .trim();
-  }
-  return content != null ? JSON.stringify(content) : "";
-}
-
-async function callMcpTool(endpointUrl: string, name: string, args: Record<string, unknown>): Promise<string> {
-  await ensureInitialized(endpointUrl);
-  const result: any = await mcpRequest(endpointUrl, "tools/call", { name, arguments: args }, MCP_TOOL_CALL_TIMEOUT_MS);
-  if (result?.isError) {
-    return `Tool returned an error: ${extractText(result.content) || "Unknown tool error."}`;
-  }
-  return extractText(result?.content) || JSON.stringify(result ?? "");
-}
-
-
 function parseQualifiedToolName(name: string): { serverId: string | null; toolName: string } {
   const idx = name.indexOf("__");
   if (idx < 0) return { serverId: null, toolName: name };
   return { serverId: name.slice(0, idx), toolName: name.slice(idx + 2) };
-}
-
-async function listHubServers(endpointUrl: string): Promise<HubServerSummary[]> {
-  const cacheKey = normalizeUrl(endpointUrl);
-  const cached = hubServersCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < HUB_SERVERS_CACHE_TTL_MS) {
-    return cached.servers;
-  }
-  const serversUrl = resolveHubServersUrl(endpointUrl);
-  if (!serversUrl) return [];
-
-  const controller = beginMcpAbortController(HUB_SERVERS_TIMEOUT_MS);
-  try {
-    const response = await fetch(resolveFetchUrl(serversUrl), {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    });
-    if (!response.ok) return [];
-    const json: any = await response.json();
-    const servers = Array.isArray(json?.servers)
-      ? json.servers.map((server: any) => ({
-          id: String(server.id ?? ""),
-          label: String(server.label ?? server.id ?? ""),
-          status: server.status ? String(server.status) : undefined,
-        }))
-      : [];
-    hubServersCache.set(cacheKey, { servers, at: Date.now() });
-    return servers;
-  } catch {
-    return [];
-  } finally {
-    endMcpAbortController(controller);
-  }
 }
 
 function summarizeToolDescription(def: McpToolDef, serverLabel?: string): string {
