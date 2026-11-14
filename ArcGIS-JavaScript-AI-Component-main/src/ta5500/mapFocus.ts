@@ -128,13 +128,14 @@ export async function geocodeInTelAviv(
     locator.addressToLocations(WORLD_GEOCODER_URL, {
       address: { SingleLine: q },
       maxLocations: constrained ? 1 : 3,
-      countryCode: "ISR",
-      ...(constrained ? { searchExtent: ta } : {}),
+      ...(constrained ? { countryCode: "ISR", searchExtent: ta } : {}),
       outSpatialReference: view.spatialReference,
       outFields: ["Match_addr", "Addr_type"],
     });
-  // searchExtent is a hard filter: when it yields nothing, geocode again without it to tell
-  // "outside Tel Aviv" ({ outside: true }) from "unknown place" (null).
+  // searchExtent is a hard filter: when it yields nothing, geocode again with no extent and no
+  // country, so "outside Tel Aviv" (foreign or elsewhere in Israel -> { outside: true }) differs from
+  // "unknown place" (null). The Tel Aviv-constrained call is always tried first; a name that also
+  // exists elsewhere is resolved by the geocoder's ranking only when Tel Aviv has no match.
   let candidates = await geocode(true);
   if (!candidates?.length) candidates = await geocode(false);
   const c = candidates?.[0];
