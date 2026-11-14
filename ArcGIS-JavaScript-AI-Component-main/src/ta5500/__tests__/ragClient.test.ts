@@ -10,9 +10,9 @@ const fixture = (name: string): McpToolResult =>
 const SERVICE_DOWN = "שירות תוכנית המתאר אינו זמין כרגע. נסו שוב בעוד מספר דקות.";
 
 test("parses structured search", () => {
-  const r = parseSearchPlanResult(fixture("search-610.json"));
+  const r = parseSearchPlanResult(fixture("search-plan.json"));
   assert.ok(["high", "medium", "low"].includes(r.band));
-  assert.ok(r.location.areas.includes("610"));
+  assert.ok(r.location.areas.includes("105"));
   assert.ok(r.hits.length > 0);
   assert.ok(r.text.startsWith("רמת התאמה"));
   assert.equal(typeof r.hits[0].citation, "string");
@@ -63,10 +63,10 @@ function stubHub(reply: (name: string, args: any) => unknown) {
 }
 
 test("searchPlan calls ta5500__search_plan with the question and non-empty filters", async () => {
-  const hub = stubHub(() => fixture("search-610.json"));
+  const hub = stubHub(() => fixture("search-plan.json"));
   try {
-    const r = await searchPlan("/api/mcp-search-test", " מה מותר? ", { areas: ["610"], zone_types: [] });
-    assert.deepEqual(hub.calls, [{ name: "ta5500__search_plan", args: { question: "מה מותר?", areas: ["610"] } }]);
+    const r = await searchPlan("/api/mcp-search-test", " מה מותר? ", { areas: ["105"], zone_types: [] });
+    assert.deepEqual(hub.calls, [{ name: "ta5500__search_plan", args: { question: "מה מותר?", areas: ["105"] } }]);
     assert.ok(r.hits.length > 0);
   } finally {
     hub.restore();
