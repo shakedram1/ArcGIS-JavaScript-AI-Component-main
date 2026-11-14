@@ -321,7 +321,7 @@ In the browser, the console shows which agent handled each question ("Executing 
 
 ## TA5500 Assistant (Tel Aviv master plan)
 
-When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122), the app enters **TA5500 mode** and registers three extra agents. Plan answers need the RAG stack running (see [Full Dev Stack](#full-dev-stack-app--mcp-hub--ta5500-rag-linux--wsl)); without it the Plan agent replies with a Hebrew "unavailable" message and leaves the map as it is.
+When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122), the app enters **TA5500 mode** and registers three extra agents. Plan answers need the RAG stack running (see [Full Dev Stack](#full-dev-stack-app--mcp-hub--ta5500-rag-linux--wsl)); without it the Plan agent replies "שירות תוכנית המתאר אינו זמין כרגע. נסו שוב בעוד מספר דקות." (`PLAN_SERVICE_UNAVAILABLE` in `src/ta5500/ragClient.ts`) and leaves the map as it is.
 
 | Agent id | Chosen when the request is about | Does |
 |---|---|---|
@@ -333,9 +333,21 @@ Other agents (data exploration, layer creation, MCP passthrough, help) stay avai
 
 **Focus.** A plan answer sets the map focus (a place plus highlighted layers). A chip "מיקוד: …" with an X appears in the assistant panel while a focus is active. The focus is cleared by the chip, by asking ("נקה מיקוד", "אפס את המפה"), or by "שיחה חדשה"; clearing restores layer visibility and filters.
 
-**Routing trace.** Open the app with `?mode=edit`: the chat shows "Executing registered agent: <id>" for each request, so you can see which agent was picked.
+**Routing trace.** Open the app with `?mode=edit`: the chat shows "Executing registered agent: <name>" for each request, so you can see which agent was picked. The trace prints the agent's name, not its id:
 
-**Routing test set.** `docs/routing-questions.yml` lists Hebrew requests with the expected agent. Run it by hand after every agent-description change and every `@arcgis/*` upgrade; the header of the file explains how and what to record. Add the team's own wording under `# team questions`.
+| Name in the trace | Agent id |
+|---|---|
+| TA5500 Plan | `ta5500-plan` |
+| TA5500 Map | `ta5500-map` |
+| Out of scope | `ta5500-scope` |
+| All Capabilities | `all-capabilities-agent` |
+| Create Feature Layer | `create-feature-layer-agent` |
+| Manage Feature Layer Features | `manage-feature-layer-agent` |
+| Add Layer to Map | `add-layer-to-map-agent` |
+| MCP Hub (the hub's server name) | `mcp-passthrough-agent` |
+| (SDK built-in data exploration) | not defined in `src/`; confirm the name and id from the trace on the first run |
+
+**Routing test set.** `docs/routing-questions.yml` lists Hebrew requests with the expected agent. Run it by hand after every agent-description change (including the examples inside `src/ta5500/prompts.ts`) and every `@arcgis/*` upgrade; the header of the file explains how and what to record. Add the team's own wording under `# team questions`.
 
 **Manual end-to-end checklist** (TA5500 map, RAG running):
 
@@ -344,10 +356,12 @@ Other agents (data exploration, layer creation, MCP passthrough, help) stay avai
 - [ ] A follow-up that depends on the focus ("ומה לגבי מגורים שם?").
 - [ ] Clear the focus by the chip, and by text ("נקה מיקוד").
 - [ ] A place outside Tel Aviv (Haifa, Paris): scope reply, map unchanged.
+- [ ] A neighbouring city inside the Tel Aviv bounding box: "קח אותי לרמת גן" and "מה מותר לבנות בגבעתיים?" are declined as outside Tel Aviv-Yafo, map unchanged.
+- [ ] An area code that is not in the plan: "מה מותר לבנות באזור 999?" answers city-wide and says "אזור 999 אינו מופיע בתוכנית."; "תתמקד על אזור 610" says the same and leaves the map unchanged.
 - [ ] An unrelated topic (weather): scope reply.
 - [ ] RAG down (`docker compose stop service` in `ta5500-rag`): Hebrew unavailable message, focus untouched; then `docker compose start service`.
 
-**Unit tests.** `npm test` runs the Node tests for the agent runtime and the pure TA5500 modules (no browser needed).
+**Unit tests.** `npm test` runs the Node tests for the agent runtime and the pure TA5500 modules (no browser needed); `npm run typecheck:test` type-checks them.
 
 ## Local Tests
 

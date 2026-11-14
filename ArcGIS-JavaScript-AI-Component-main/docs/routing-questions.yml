@@ -6,20 +6,33 @@
 # How to run (by hand, after every description change and every @arcgis/* upgrade):
 #   1. Start the full dev stack (README "Full Dev Stack"; the RAG must be running for plan entries).
 #   2. Open the TA5500 map with ?mode=edit, e.g. http://localhost:5173/?mode=edit .
-#      In edit mode the chat shows "Executing registered agent: <id>" for each request.
+#      In edit mode the chat shows "Executing registered agent: <name>" for each request. The trace prints
+#      the agent's NAME, not its id; map it to the id with the table below. ("Available agents: ..." lists ids.)
 #   3. Ask each `q` in a FRESH conversation (press "שיחה חדשה" first), unless the entry has `after:`.
 #      An `after:` entry is asked right after the named earlier question, in the same conversation.
 #   4. Compare the agent named in the trace with `expect`.
-#   5. Record in `result`: pass | fail, and for a fail add `got: <agent id seen>` and optionally `note:`.
+#   5. Record in `result`: pass | fail, and for a fail add `got: <agent id>` (from the name seen) and optionally `note:`.
 #      Also record the date and the @arcgis/* version in the line below.
 #
 # Last run: not run yet (all results pending)
+#
+# Agent name in the trace → id:
+#   "TA5500 Plan"                    → ta5500-plan
+#   "TA5500 Map"                     → ta5500-map
+#   "Out of scope"                   → ta5500-scope
+#   "All Capabilities"               → all-capabilities-agent
+#   "Create Feature Layer"           → create-feature-layer-agent
+#   "Manage Feature Layer Features"  → manage-feature-layer-agent
+#   "Add Layer to Map"               → add-layer-to-map-agent
+#   "MCP Hub" (the hub's serverName) → mcp-passthrough-agent
+#   SDK built-in data-exploration agent → its name/id is not defined in src/ (the SDK bundle suggests the id
+#   "dataExploration"); confirm the actual name and id from the trace on the first run and fix `expect` below.
 #
 # Fields:
 #   q       the request, as typed by the user
 #   kind    plan | plan+place | map | out_of_scope | other_agent
 #   expect  ta5500-plan | ta5500-map | ta5500-scope | all-capabilities-agent | create-feature-layer-agent |
-#           data-exploration (SDK built-in) | ... (other custom agent ids: see data-agent-id in src/agents)
+#           data-exploration (SDK built-in; placeholder until confirmed, see above) | ... (other ids: table above)
 #   after   (optional) earlier q this one follows in the same conversation
 #   note    what a correct run looks like beyond the agent choice
 #   result  pending | pass | fail
@@ -72,11 +85,12 @@
 
 # ---- place not in plan index ----
 # Area 610 does not exist in the plan index (areas are 101-108, 201-212, 301, 401, 402, ...).
-# Expected: the Plan agent answers from the plan, says the place was not identified, map unchanged.
+# Expected: the Plan agent answers city-wide from the plan and says "אזור 610 אינו מופיע בתוכנית." (notInPlanNote);
+# the code is never sent to the geocoder.
 - q: "מה תוכנית הפיתוח העסקי באזור 610?"
   kind: plan+place
   expect: ta5500-plan
-  note: place not in plan index; reply includes NO_PLACE_NOTE, map and focus unchanged
+  note: place not in plan index; reply includes "אזור 610 אינו מופיע בתוכנית.", no place focus
   result: pending
 - q: "מה מותר לבנות באזור 610?"
   kind: plan+place
@@ -88,6 +102,23 @@
   kind: plan+place
   expect: ta5500-plan
   note: real area; focus set on 105
+  result: pending
+- q: "תתמקד על אזור 610"
+  kind: map
+  expect: ta5500-map
+  note: area not in the plan; reply "אזור 610 אינו מופיע בתוכנית.", map unchanged (not geocoded)
+  result: pending
+
+# ---- neighbouring cities (inside the bounding box of Tel Aviv-Yafo, outside its planning areas) ----
+- q: "קח אותי לרמת גן"
+  kind: out_of_scope
+  expect: ta5500-scope
+  note: ta5500-map declining with OUTSIDE_TA_REPLY is the acceptable alternative (record which); map unchanged
+  result: pending
+- q: "מה מותר לבנות בגבעתיים?"
+  kind: out_of_scope
+  expect: ta5500-scope
+  note: ta5500-plan declining with OUTSIDE_TA_REPLY is the acceptable alternative (record which); no plan answer, map unchanged
   result: pending
 
 # ---- follow-up / refine / clear focus ----

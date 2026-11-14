@@ -19,6 +19,7 @@ npm run build        # vite build (does NOT type-check)
 npm run preview      # serve the build on :4173
 npx tsc --noEmit     # type-check src/ (tsconfig only includes src/, not hub/)
 npm test             # tsx --test: src/agents/__tests__ and src/ta5500/__tests__
+npm run typecheck:test  # type-check the tests (tsconfig.test.json; tsconfig.json excludes __tests__)
 npm run test:local   # npx tsx tests/run-tests.ts (local-only harness)
 ```
 
@@ -44,14 +45,14 @@ The dev config has machine-specific defaults that break `npm run dev` on other m
 
 ### Custom assistant agents (`src/agents/`)
 Each agent exports `registerXxxAgent(assistantEl, ...)`. The function:
-1. builds an agent object `{ id, name, description, createGraph, workspace }`, where `createGraph` returns a LangGraph `StateGraph` imported from `@langchain/langgraph/web`, whose state has `messages` plus an `outputMessage` string that the assistant displays;
+1. builds an agent object `{ id, name, description, createGraph, workspace }`, where `createGraph` returns a LangGraph `StateGraph` imported from `@langchain/langgraph/web`, whose state is `Annotation.Root({ ...agentRuntimeChannels(), ...ownChannels })` (the runtime channels include `outputMessage`, the text the assistant displays, plus `summary`, `status` and `sharedStatePatch`);
 2. removes any existing `[data-agent-id=...]` child and appends a new `<arcgis-assistant-agent>` element with `.agent = agent`.
 
 **5.1 agent contract.** `@arcgis/ai-components` 5.1 passes the request and history through `agentExecutionContext`, not `state.messages`. Every agent must build its state with `agentRuntimeChannels()`, read the request with `readAgentRequest()` and return through `agentResult()` (all in `src/agents/agentRuntime.ts`); never read `state.messages`, or the agent answers a generic "how can I help?".
 
 **TA5500 mode.** `useAssistantSetup` detects the TA5500 plan layers on the loaded map and, only then, registers `ta5500-plan` (`PlanAgent.ts`), `ta5500-map` (`Ta5500MapAgent.ts`) and `ta5500-scope` (`ScopeAgent.ts`) from its single registration list, and hides the `ta5500` MCP tools from the passthrough agent. Code lives in `src/ta5500/`: pure, Node-testable modules (`focus.ts`, `layers.ts`, `planFlow.ts`, `planLogic.ts`, `prompts.ts` with the agent descriptions and Hebrew copy, `ragClient.ts`, `types.ts`) and `mapFocus.ts`, the only module that touches the MapView. Keep the pure modules free of ArcGIS imports so `npm test` runs them. After changing any agent description, re-run the routing set `docs/routing-questions.yml` by hand.
 
-The assistant's router chooses an agent by its `description`, so description wording matters for routing. Several descriptions include explicit "do not use for X" clauses to prevent misroutes. Parameter extraction inside agents uses `invokeToolPrompt` from `@arcgis/ai-orchestrator` with a Zod-schema'd LangChain `tool` as a structured-output trick. `@arcgis/ai-orchestrator` and `@langchain/core` come in transitively through `@arcgis/ai-components`, not as direct dependencies.
+The assistant's router chooses an agent by its `description`, so description wording matters for routing. Several descriptions include explicit "do not use for X" clauses to prevent misroutes. Parameter extraction in new agents uses `invokeStructuredPrompt` from `@arcgis/ai-components/utils/index.js` with a Zod schema (see `PlanAgent.ts`); older agents use `invokeToolPrompt` from the same module with a Zod-schema'd LangChain `tool`. The 5.1 orchestrator re-routes to another agent after a `failed` status, so return `ok: false` only when a retry by another agent makes sense, and say "do not retry" in the summary otherwise. `@langchain/core` comes in transitively through `@arcgis/ai-components`, not as a direct dependency.
 
 `useAssistantSetup` re-registers all agents whenever the map becomes ready or `mcpHubRefreshToken` changes (bumped by the hub manager UI). To add an agent, add its register call there. `AllCapabilitiesAgent` lists the other agents by reading the DOM, so it picks up new ones automatically.
 

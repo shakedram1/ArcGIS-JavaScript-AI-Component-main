@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/agents/__tests__/**/*.ts", "src/ta5500/__tests__/**/*.ts"],
+  "exclude": []
+}
