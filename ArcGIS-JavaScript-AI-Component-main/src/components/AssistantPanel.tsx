@@ -20,6 +20,7 @@ interface AssistantElement extends HTMLElement {
   description?: string;
   entryMessage?: string;
   suggestedPrompts?: string[];
+  logEnabled?: boolean;
   clearChatHistory?: () => Promise<void>;
 }
 
@@ -41,6 +42,10 @@ export interface AssistantPanelProps {
   chatPanelBorderColor: string;
   showEmptyMapAssistantNotice: boolean;
   onDismissEmptyMapNotice: () => void;
+  /** TA5500 mode: the built-in navigation agent is replaced by the TA5500 Map agent. */
+  isTa5500: boolean;
+  /** Show the assistant's agent-execution log in the chat (`?mode=edit`, for routing tests). */
+  logEnabled: boolean;
 }
 
 /**
@@ -62,6 +67,8 @@ export function AssistantPanel({
   chatPanelBorderColor,
   showEmptyMapAssistantNotice,
   onDismissEmptyMapNotice,
+  isTa5500,
+  logEnabled,
 }: AssistantPanelProps) {
   const assistantRef = useRef<AssistantElement>(null);
 
@@ -87,6 +94,7 @@ export function AssistantPanel({
     el.description = ASSISTANT_DESCRIPTION;
     el.entryMessage = ASSISTANT_ENTRY_MESSAGE;
     el.suggestedPrompts = ASSISTANT_SUGGESTED_PROMPTS;
+    el.logEnabled = logEnabled;
   };
 
   // Applying these properties once is unreliable: the custom element isn't
@@ -102,7 +110,7 @@ export function AssistantPanel({
     return () => timers.forEach(clearTimeout);
   };
 
-  useEffect(() => applyAssistantCopyWithRetries(), [webMapId, mcpHubRefreshToken]);
+  useEffect(() => applyAssistantCopyWithRetries(), [webMapId, mcpHubRefreshToken, logEnabled]);
 
   const handleNewChat = async () => {
     await assistantRef.current?.clearChatHistory?.();
@@ -188,7 +196,7 @@ export function AssistantPanel({
                         onClick={() => void handleNewChat()}
                       ></calcite-action>
                       <arcgis-assistant-help-agent></arcgis-assistant-help-agent>
-                      <arcgis-assistant-navigation-agent></arcgis-assistant-navigation-agent>
+                      {!isTa5500 && <arcgis-assistant-navigation-agent></arcgis-assistant-navigation-agent>}
                       <arcgis-assistant-data-exploration-agent></arcgis-assistant-data-exploration-agent>
                       {/* Custom agents are appended programmatically by useAssistantSetup */}
                     </arcgis-assistant>

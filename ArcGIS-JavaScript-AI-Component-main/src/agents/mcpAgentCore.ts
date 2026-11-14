@@ -1194,3 +1194,23 @@ export async function deriveGeoEntities(
   const corpus = [text, ...toolOutputTexts].filter(Boolean).join("\n\n");
   return enrichGeoEntityContext(entities, corpus);
 }
+/** Server id of a hub-namespaced tool name (`<serverId>__<toolName>`), or null if not namespaced. */
+export function toolServerId(name: string): string | null {
+  const idx = name.indexOf("__");
+  return idx < 0 ? null : name.slice(0, idx);
+}
+
+/** Drops tools whose hub server id is in `serverIds` (e.g. hide `ta5500__*` from the passthrough agent). */
+export function excludeServerTools<T extends { name: string }>(tools: T[], serverIds: readonly string[]): T[] {
+  if (!serverIds.length) return tools;
+  return tools.filter((t) => {
+    const id = toolServerId(t.name);
+    return id === null || !serverIds.includes(id);
+  });
+}
+
+/** Drops hub servers whose id is in `serverIds`. */
+export function excludeHubServers<T extends { id: string }>(servers: T[], serverIds: readonly string[]): T[] {
+  if (!serverIds.length) return servers;
+  return servers.filter((s) => !serverIds.includes(s.id));
+}

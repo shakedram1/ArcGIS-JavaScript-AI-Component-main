@@ -3,7 +3,8 @@ import { HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { z } from "zod";
-import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, prioritizeRequestedGeoFocus, type McpToolDef } from "./mcpAgentCore";
+import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, excludeHubServers, excludeServerTools, prioritizeRequestedGeoFocus, type McpToolDef } from "./mcpAgentCore";
+import { MCP_NOT_PLAN_SUFFIX } from "../ta5500/prompts";
 import { abortActiveMcpRequests, callMcpTool, clearMcpCaches, isAbortLikeError, listHubServers, listMcpTools, type HubServerSummary } from "../utils/mcpClient";
 import { inputSchemaToZod, normalizeToolArgsForCall, truncateDescription } from "../utils/mcpZodSchema";
 import { clearMcpGeoLayer, renderMcpGeoEntities, type GeoEntity } from "../utils/mcpGeoRenderer";
@@ -14,6 +15,24 @@ import { normalizeMessages, contentToText, getLastAiMessage, isAiMessageLike, is
 export interface McpPassthroughAgentContext {
   baseUrl?: string;
   serverName?: string;
+  /** TA5500 mode: append MCP_NOT_PLAN_SUFFIX to the routing description. */
+  ta5500Mode?: boolean;
+}
+
+// The Plan agent owns the ta5500 RAG server's tools (`ta5500__*`); this agent never sees them.
+// Filtered at use time so the per-endpoint tool cache in mcpClient stays untouched.
+const HIDDEN_SERVER_IDS = ["ta5500"] as const;
+
+function visibleTools(tools: McpToolDef[]): McpToolDef[] {
+  return excludeServerTools(tools, HIDDEN_SERVER_IDS);
+}
+
+function visibleHubServers(servers: HubServerSummary[]): HubServerSummary[] {
+  return excludeHubServers(servers, HIDDEN_SERVER_IDS);
+}
+
+function withModeSuffix(description: string, ta5500Mode: boolean): string {
+  return ta5500Mode ? `${description}\n${MCP_NOT_PLAN_SUFFIX}` : description;
 }
 
 interface ToolAliasMap {
@@ -291,18 +310,20 @@ export async function refreshMcpAgentDescription(assistant: HTMLElement): Promis
 
   const baseUrl: string = agentEl._mcpBaseUrl ?? "";
   const serverName: string = agentEl.agent.name ?? "MCP Server";
+  const ta5500Mode = Boolean(agentEl._ta5500Mode);
   if (!baseUrl) return;
 
   try {
     clearMcpCaches(baseUrl);
-    const [tools, hubServers] = await Promise.all([
+    const [allTools, allHubServers] = await Promise.all([
       listMcpTools(baseUrl),
       listHubServers(baseUrl),
     ]);
+    const tools = visibleTools(allTools);
     if (tools.length) {
       agentEl.agent = {
         ...agentEl.agent,
-        description: buildDescriptionFromTools(tools, serverName, hubServers),
+        description: withModeSuffix(buildDescriptionFromTools(tools, serverName, visibleHubServers(allHubServers)), ta5500Mode),
       };
     }
   } catch {}
@@ -438,7 +459,7 @@ export function registerMcpPassthroughAgent(
         let mcpToolDefs: McpToolDef[] = [];
         let discoveryError: string | null = null;
         try {
-          mcpToolDefs = await listMcpTools(resolvedUrl);
+          mcpToolDefs = visibleTools(await listMcpTools(resolvedUrl));
           if (isMcpRunStale(runToken)) {
             return { messages: [], outputMessage: "", canceled: true };
           }
@@ -462,7 +483,7 @@ export function registerMcpPassthroughAgent(
         }
 
         const aliasMap: ToolAliasMap = {};
-        const hubServers = await listHubServers(resolvedUrl);
+        const hubServers = visibleHubServers(await listHubServers(resolvedUrl));
         const serverLabels = new Map(hubServers.map((server) => [server.id, server.label]));
         const priorToolRounds = Number(agentState?.toolRoundCount ?? 0);
         const langchainTools = mcpToolDefs.map((def, index) => {
@@ -698,7 +719,10 @@ export function registerMcpPassthroughAgent(
   const agent = {
     id: agentId,
     name: serverLabel,
-    description: `${MCP_ROUTING_BASE_DESCRIPTION} Connected server: ${serverLabel}. Do not use this for questions about the active map, current layers, or content already loaded in the app.`,
+    description: withModeSuffix(
+      `${MCP_ROUTING_BASE_DESCRIPTION} Connected server: ${serverLabel}. Do not use this for questions about the active map, current layers, or content already loaded in the app.`,
+      Boolean(ctx.ta5500Mode),
+    ),
     createGraph,
     workspace: {},
   } as any;
@@ -713,6 +737,7 @@ export function registerMcpPassthroughAgent(
   const agentEl = document.createElement("arcgis-assistant-agent") as any;
   agentEl.setAttribute("data-agent-id", agentId);
   agentEl._mcpBaseUrl = ctx.baseUrl ?? "";
+  agentEl._ta5500Mode = Boolean(ctx.ta5500Mode);
   agentEl.agent = agent;
   assistant.appendChild(agentEl);
 }

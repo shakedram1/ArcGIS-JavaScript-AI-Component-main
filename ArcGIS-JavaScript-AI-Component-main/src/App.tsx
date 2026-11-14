@@ -3,6 +3,7 @@ import { setLocale } from "@arcgis/core/intl.js";
 import { useAuth } from "./hooks/useAuth";
 import { useWebMap } from "./hooks/useWebMap";
 import { useAssistantSetup } from "./hooks/useAssistantSetup";
+import { useTa5500Mode } from "./hooks/useTa5500Mode";
 import { useTheme, type ThemeSnapshot } from "./hooks/useTheme";
 import { SignInScreen } from "./components/SignInScreen";
 import { MapPickerScreen } from "./components/MapPickerScreen";
@@ -52,6 +53,7 @@ export default function App() {
   // Hooks
   const auth = useAuth(oauthClientId, portalUrl);
   const webMap = useWebMap(auth.isSignedIn, oauthClientId, portalUrl);
+  const isTa5500 = useTa5500Mode(webMap.isMapReady, webMap.webMapId);
   const assistant = useAssistantSetup(
     webMap.webMapId,
     webMap.isMapReady,
@@ -61,6 +63,7 @@ export default function App() {
     oauthClientId,
     portalUrl,
     mcpBaseUrl,
+    isTa5500,
   );
   const theme = useTheme(appName);
 
@@ -248,6 +251,8 @@ export default function App() {
             chatPanelBorderColor={theme.chatPanelBorderColor}
             showEmptyMapAssistantNotice={showEmptyMapAssistantNotice}
             onDismissEmptyMapNotice={() => setShowEmptyMapAssistantNotice(false)}
+            isTa5500={isTa5500}
+            logEnabled={appMode === "edit"}
           />
         </>
       )}

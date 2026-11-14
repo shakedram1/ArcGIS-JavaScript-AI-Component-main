@@ -8,6 +8,25 @@ import { registerCreateFeatureLayerAgent } from "../agents/CreateFeatureLayerAge
 import { registerManageFeatureLayerAgent } from "../agents/ManageFeatureLayerAgent";
 import { registerFeatureLayerCapabilitiesAgent } from "../agents/AllCapabilitiesAgent";
 import { registerAddLayerToMapAgent } from "../agents/AddLayerToMapAgent";
+import { registerPlanAgent } from "../agents/PlanAgent";
+import { registerTa5500MapAgent } from "../agents/Ta5500MapAgent";
+import { registerScopeAgent } from "../agents/ScopeAgent";
+
+// data-agent-id values of the agents registered only in TA5500 mode. Their
+// elements are removed when TA5500 mode ends so they never linger on another map.
+const TA5500_AGENT_IDS = ["ta5500-plan", "ta5500-map", "ta5500-scope"] as const;
+
+function removeAgentElements(assistant: HTMLElement, agentIds: readonly string[]): void {
+  for (const id of agentIds) {
+    assistant.querySelector(`[data-agent-id="${id}"]`)?.remove();
+  }
+}
+
+interface AgentRegistration {
+  id: string;
+  enabled: boolean;
+  register: (assistant: HTMLElement) => void;
+}
 
 function toAssistantPreparationErrorMessage(message: string): string {
   if (/eligible layers or fields|generate embeddings|embedding/i.test(message)) {
@@ -37,6 +56,7 @@ export function useAssistantSetup(
   oauthClientId: string | undefined,
   portalUrl: string,
   mcpBaseUrl: string,
+  isTa5500: boolean,
 ): AssistantSetupState {
   const [isAssistantPrepared, setIsAssistantPrepared] = useState(false);
   const [isEmbeddingBusy, setIsEmbeddingBusy] = useState(false);
@@ -65,13 +85,33 @@ export function useAssistantSetup(
     const assistant = document.querySelector("arcgis-assistant") as HTMLElement | null;
     if (!assistant) return;
 
-    registerCreateFeatureLayerAgent(assistant, { oauthClientId, portalUrl, layerName: "Locations" });
-    registerManageFeatureLayerAgent(assistant);
-    registerAddLayerToMapAgent(assistant);
-    registerFeatureLayerCapabilitiesAgent(assistant);
-    registerMcpPassthroughAgent(assistant, { baseUrl: mcpBaseUrl, serverName: "MCP Hub" });
-    void refreshMcpAgentDescription(assistant);
-  }, [webMapId, isMapReady, mcpHubRefreshToken, oauthClientId, portalUrl, mcpBaseUrl]);
+    // One list, one flag per agent (spec §7): any agent can be switched off
+    // in TA5500 mode by changing its `enabled` expression.
+    const registrations: AgentRegistration[] = [
+      { id: "create-feature-layer-agent", enabled: true, register: (a) => registerCreateFeatureLayerAgent(a, { oauthClientId, portalUrl, layerName: "Locations" }) },
+      { id: "manage-feature-layer-agent", enabled: true, register: registerManageFeatureLayerAgent },
+      { id: "add-layer-to-map-agent", enabled: true, register: registerAddLayerToMapAgent },
+      { id: "all-capabilities-agent", enabled: true, register: registerFeatureLayerCapabilitiesAgent },
+      { id: "mcp-passthrough-agent", enabled: true, register: (a) => registerMcpPassthroughAgent(a, { baseUrl: mcpBaseUrl, serverName: "MCP Hub", ta5500Mode: isTa5500 }) },
+      { id: "ta5500-plan", enabled: isTa5500, register: (a) => registerPlanAgent(a, { baseUrl: mcpBaseUrl }) },
+      { id: "ta5500-map", enabled: isTa5500, register: (a) => registerTa5500MapAgent(a, { baseUrl: mcpBaseUrl }) },
+      { id: "ta5500-scope", enabled: isTa5500, register: registerScopeAgent },
+    ];
+
+    for (const entry of registrations) {
+      // Each register function replaces its own stale [data-agent-id] element;
+      // a disabled entry must not leave an earlier element behind.
+      if (entry.enabled) entry.register(assistant);
+      else removeAgentElements(assistant, [entry.id]);
+    }
+    if (registrations.some((r) => r.id === "mcp-passthrough-agent" && r.enabled)) {
+      void refreshMcpAgentDescription(assistant);
+    }
+
+    return () => {
+      if (isTa5500) removeAgentElements(assistant, TA5500_AGENT_IDS);
+    };
+  }, [webMapId, isMapReady, mcpHubRefreshToken, oauthClientId, portalUrl, mcpBaseUrl, isTa5500]);
 
   const ensureEmbeddings = useCallback(
     async (forceRegenerate = false) => {
