@@ -27,3 +27,10 @@ test("excludeHubServers hides only the listed servers", () => {
   const servers = [{ id: "ta5500", label: "TA5500" }, { id: "news", label: "News" }];
   assert.deepEqual(excludeHubServers(servers, ["ta5500"]).map((s) => s.id), ["news"]);
 });
+
+test("outside TA5500 mode (empty id list) nothing is hidden", () => {
+  const tools = [{ name: "ta5500__search_plan" }, { name: "news__headlines" }];
+  const servers = [{ id: "ta5500", label: "TA5500" }, { id: "news", label: "News" }];
+  assert.deepEqual(excludeServerTools(tools, []), tools);
+  assert.deepEqual(excludeHubServers(servers, []), servers);
+});

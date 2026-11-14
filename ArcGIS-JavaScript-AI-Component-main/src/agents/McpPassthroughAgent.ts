@@ -19,16 +19,20 @@ export interface McpPassthroughAgentContext {
   ta5500Mode?: boolean;
 }
 
-// The Plan agent owns the ta5500 RAG server's tools (`ta5500__*`); this agent never sees them.
-// Filtered at use time so the per-endpoint tool cache in mcpClient stays untouched.
-const HIDDEN_SERVER_IDS = ["ta5500"] as const;
-
-function visibleTools(tools: McpToolDef[]): McpToolDef[] {
-  return excludeServerTools(tools, HIDDEN_SERVER_IDS);
+// In TA5500 mode the Plan agent owns the ta5500 RAG server's tools (`ta5500__*`), so this
+// agent hides them there. On other maps the Plan agent is not registered and this agent is
+// the only path to the RAG, so nothing is hidden. Filtered at use time so the per-endpoint
+// tool cache in mcpClient stays untouched.
+function hiddenServerIds(ta5500Mode: boolean): string[] {
+  return ta5500Mode ? ["ta5500"] : [];
 }
 
-function visibleHubServers(servers: HubServerSummary[]): HubServerSummary[] {
-  return excludeHubServers(servers, HIDDEN_SERVER_IDS);
+function visibleTools(tools: McpToolDef[], ta5500Mode: boolean): McpToolDef[] {
+  return excludeServerTools(tools, hiddenServerIds(ta5500Mode));
+}
+
+function visibleHubServers(servers: HubServerSummary[], ta5500Mode: boolean): HubServerSummary[] {
+  return excludeHubServers(servers, hiddenServerIds(ta5500Mode));
 }
 
 function withModeSuffix(description: string, ta5500Mode: boolean): string {
@@ -319,11 +323,11 @@ export async function refreshMcpAgentDescription(assistant: HTMLElement): Promis
       listMcpTools(baseUrl),
       listHubServers(baseUrl),
     ]);
-    const tools = visibleTools(allTools);
+    const tools = visibleTools(allTools, ta5500Mode);
     if (tools.length) {
       agentEl.agent = {
         ...agentEl.agent,
-        description: withModeSuffix(buildDescriptionFromTools(tools, serverName, visibleHubServers(allHubServers)), ta5500Mode),
+        description: withModeSuffix(buildDescriptionFromTools(tools, serverName, visibleHubServers(allHubServers, ta5500Mode)), ta5500Mode),
       };
     }
   } catch {}
@@ -459,7 +463,7 @@ export function registerMcpPassthroughAgent(
         let mcpToolDefs: McpToolDef[] = [];
         let discoveryError: string | null = null;
         try {
-          mcpToolDefs = visibleTools(await listMcpTools(resolvedUrl));
+          mcpToolDefs = visibleTools(await listMcpTools(resolvedUrl), Boolean(ctx.ta5500Mode));
           if (isMcpRunStale(runToken)) {
             return { messages: [], outputMessage: "", canceled: true };
           }
@@ -483,7 +487,7 @@ export function registerMcpPassthroughAgent(
         }
 
         const aliasMap: ToolAliasMap = {};
-        const hubServers = visibleHubServers(await listHubServers(resolvedUrl));
+        const hubServers = visibleHubServers(await listHubServers(resolvedUrl), Boolean(ctx.ta5500Mode));
         const serverLabels = new Map(hubServers.map((server) => [server.id, server.label]));
         const priorToolRounds = Number(agentState?.toolRoundCount ?? 0);
         const langchainTools = mcpToolDefs.map((def, index) => {
