@@ -601,6 +601,9 @@ export function registerMcpPassthroughAgent(
     function routeAfterAgent(agentState: any) {
       try {
         if (agentState?.canceled) return "respond";
+        // agentNode failed this round: the last AI message is from an earlier round, so its tool calls
+        // must not be re-run.
+        if (agentState?.status === "failed") return "respond";
         const messages = normalizeMessages(agentState?.messages);
         const lastAiMessage = getLastAiMessage(messages);
         if (!lastAiMessage) return "respond";
