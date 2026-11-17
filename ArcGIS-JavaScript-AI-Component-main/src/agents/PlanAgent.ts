@@ -298,12 +298,12 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
     return new StateGraph(state)
       .addNode("resolve", resolve)
       .addNode("search", search)
-      .addNode("answer", answer)
+      .addNode("answerQuestion", answer)
       .addNode("focus", focus)
       .addEdge(START, "resolve")
       .addConditionalEdges("resolve", next("search"), ["search", END])
-      .addConditionalEdges("search", next("answer"), ["answer", END])
-      .addConditionalEdges("answer", next("focus"), ["focus", END])
+      .addConditionalEdges("search", next("answerQuestion"), ["answerQuestion", END])
+      .addConditionalEdges("answerQuestion", next("focus"), ["focus", END])
       .addEdge("focus", END);
   };
 

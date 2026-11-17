@@ -65,3 +65,11 @@ test("matchCatalog: every drawing the question offers can be chosen (even 'אז�
   // The layer "מרחבי תכנון" alone is still that layer.
   assert.deepEqual(titles(matchCatalog("הצג מרחבי תכנון", INVENTORY)), ["מרחבי תכנון|אזורי ומרחבי תכנון"]);
 });
+
+test("matchCatalog: 'תשתיות' and 'תשתית' are the same word (קווי תשתיות → the layer קווי תשתית)", () => {
+  for (const q of ["תציג לי עכשיו קווי תשתיות", "סליחה תציג לי קווי תשתית", "הצג את קווי התשתיות"]) {
+    assert.deepEqual(titles(matchCatalog(q, INVENTORY)), ["קווי תשתית|סביבה ותשתיות"], q);
+  }
+  // the drawing "סביבה ותשתיות" is still named by either spelling
+  assert.deepEqual(titles(matchCatalog("גבול התכנית של התשתיות", INVENTORY)), ["גבול התכנית|סביבה ותשתיות"]);
+});

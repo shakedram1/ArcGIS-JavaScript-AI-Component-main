@@ -15,6 +15,7 @@ export function normalizePlanText(s: string): string {
     .replace(/איזור/g, "אזור")
     .replace(/תוכנית/g, "תכנית")
     .replace(/גבולות/g, "גבול")
+    .replace(/תשתיות/g, "תשתית")
     .replace(/(?<!י)יעוד/g, "ייעוד")
     .replace(/\s+/g, " ")
     .trim();
@@ -75,7 +76,7 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
   for (const h of kept) rest = rest.split(h.matched).join(" ");
   const named = new Set([
     ...fullGroups,
-    ...groups.filter((g) => (GROUP_ALIASES[g] ?? []).some((w) => hasWord(rest, w))),
+    ...groups.filter((g) => (GROUP_ALIASES[g] ?? []).some((w) => hasWord(rest, normalizePlanText(w)))),
   ]);
 
   for (const h of kept) {
