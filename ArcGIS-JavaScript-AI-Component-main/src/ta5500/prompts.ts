@@ -90,10 +90,12 @@ Produce:
    - "filter": show only part of a layer (for example "הצג רק אזורי מגורים").
    - "reset": clear the focus and restore the map (for example "אפס את המפה", "נקה מיקוד").
 2. place: the place the action applies to, as written: a planning area code (for example "105", "101ה"), a sub-area, a street, a neighborhood or an address. Resolve "שם" or "באזור הזה" from the earlier messages or the current focus. Null if no place is involved.
-3. topic: the plan layer or plan concept the action applies to, in the user's words (for example "אזורי תעסוקה", "מוקדים", "רחובות מיוחדים"). Null if none.
+3. topic: the plan layer or plan concept the action applies to, in the user's words (for example "אזורי תעסוקה", "מוקדים", "רחובות מיוחדים", "גבול התכנית"). "הגבולות של התוכנית" ("show the plan's boundaries") is action "show" with topic "גבול התכנית". Null if none.
 
 Rules:
 - Never invent codes, area numbers or places. Copy only what appears in the conversation or the current focus; leave a field null when unsure.
+- The plan itself (תא/5500, התוכנית, תוכנית המתאר) and the city (תל אביב-יפו) are never a place: leave place null.
+- If the assistant's last message asked from which drawing (תשריט) to show a layer and the latest request answers it, set action "show" and topic to the layer title followed by the chosen drawing (for example "גבול התכנית עיצוב עירוני").
 - Do not judge whether the place is in Tel Aviv-Yafo; that is checked afterwards.
 - If the assistant's last message asked which planning area was meant and the latest request answers it, put the chosen area code in place and keep the original action and topic.`;
 
@@ -119,6 +121,11 @@ export function notInPlanNote(code: string): string {
 /** A place name that matches several planning areas: ask which one; the map is unchanged. */
 export function whichAreaQuestion(text: string, options: Place[]): string {
   return `"${text}" מתאים לכמה אזורי תכנון: ${options.map((o) => o.label).join("; ")}. לאיזה מהם הכוונה?`;
+}
+
+/** A layer that exists in several of the plan's drawings (תשריטים): ask which one; the map is unchanged. */
+export function whichGroupQuestion(ambiguous: { title: string; groups: string[] }[]): string {
+  return ambiguous.map((a) => `השכבה "${a.title}" מופיעה בכמה תשריטים: ${a.groups.join(", ")}. מאיזה תשריט להציג אותה?`).join("\n");
 }
 
 export const OUTSIDE_TA_REPLY = "המקום שציינת נמצא מחוץ לתל אביב-יפו, וכאן אפשר לקבל מידע רק על תוכנית המתאר של העיר.";

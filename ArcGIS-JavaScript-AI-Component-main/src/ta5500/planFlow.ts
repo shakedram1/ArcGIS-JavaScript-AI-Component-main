@@ -304,7 +304,7 @@ export function topicLayers(topic: string | null | undefined, loc: PlanLocations
 }
 
 export type MapAction = "go_to" | "show" | "hide" | "filter" | "reset";
-export type MapStep = "reset" | "outside" | "not_in_plan" | "ask_place" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
+export type MapStep = "reset" | "outside" | "not_in_plan" | "ask_place" | "ask_layer" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
 
 /**
  * What the Map agent does (never acts on things not in the plan):
@@ -316,7 +316,8 @@ export type MapStep = "reset" | "outside" | "not_in_plan" | "ask_place" | "go_to
  * - show / filter / hide → no_place when a place was named but not resolved (the map stays unchanged);
  * - hide → hide the layers named as a whole (hideTargets); hide_partial when the topic only names types inside
  *   layers (hiding part of a layer is not supported); no_topic when nothing matched;
- * - show / filter → focus when the topic matched plan layers or a place resolved; otherwise no_topic.
+ * - show / filter → ask_layer when a named layer exists in several drawings (whichGroupQuestion, map unchanged);
+ *   focus when the topic matched plan layers or catalog layers or a place resolved; otherwise no_topic.
  */
 export function mapStep(
   action: MapAction,
@@ -327,6 +328,10 @@ export function mapStep(
     outside?: boolean;
     notInPlan?: boolean;
     ambiguousPlace?: boolean;
+    /** A named layer exists in several drawings and the request did not say which. */
+    ambiguousLayers?: boolean;
+    /** Number of catalog layers (whole layers) the request resolved to. */
+    wholeLayers?: number;
   },
 ): MapStep {
   if (action === "reset") return "reset";
@@ -339,7 +344,8 @@ export function mapStep(
     if (!s.layers.size) return "no_topic";
     return hideTargets(s.layers).whole.length ? "hide" : "hide_partial";
   }
-  return s.layers.size || s.place ? "focus" : "no_topic";
+  if (s.ambiguousLayers) return "ask_layer";
+  return s.layers.size || s.wholeLayers || s.place ? "focus" : "no_topic";
 }
 
 /** Hide acts only on layers named as a whole (codes []); layers matched by feature codes are reported as partial. */

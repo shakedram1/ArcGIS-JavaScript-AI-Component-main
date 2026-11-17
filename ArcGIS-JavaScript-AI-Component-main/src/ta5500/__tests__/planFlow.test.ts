@@ -263,6 +263,15 @@ test("mapStep: an ambiguous place is asked before anything else but reset", () =
   assert.equal(mapStep("reset", { placeText: "רמת אביב", place: null, layers: new Map(), ambiguousPlace: true }), "reset");
 });
 
+test("mapStep: ambiguous layers are asked for show/filter; whole layers focus", () => {
+  const base = { placeText: "", place: null, layers: new Map() };
+  assert.equal(mapStep("show", { ...base, ambiguousLayers: true }), "ask_layer");
+  assert.equal(mapStep("filter", { ...base, ambiguousLayers: true }), "ask_layer");
+  assert.equal(mapStep("reset", { ...base, ambiguousLayers: true }), "reset");
+  assert.equal(mapStep("show", { ...base, wholeLayers: 1 }), "focus");
+  assert.equal(mapStep("show", base), "no_topic");
+});
+
 test("unplannedAreaCode: dropped area-shaped values that are not plan areas", () => {
   assert.equal(unplannedAreaCode(["999"], loc), "999");
   assert.equal(unplannedAreaCode(validateRequest({ areas: ["999"] }, loc).dropped, loc), "999");

@@ -29,6 +29,7 @@ import {
   notInPlanNote,
   inPlace,
   whichAreaQuestion,
+  whichGroupQuestion,
 } from "../prompts";
 
 test("descriptions are non-empty and say when not to use the agent", () => {
@@ -140,4 +141,13 @@ test("whichAreaQuestion lists the options and asks", () => {
   ]);
   assert.equal(q, "\"רמת אביב\" מתאים לכמה אזורי תכנון: אזור 102 – רמת אביב ג'; אזור 106 – רמת אביב א'. לאיזה מהם הכוונה?");
   assert.ok(RESOLVE_PROMPT.includes("which planning area"));
+});
+
+test("whichGroupQuestion names the layer and the drawings", () => {
+  assert.equal(
+    whichGroupQuestion([{ title: "מוקדי פיתוח ושימוש עירוניים", groups: ["אזורי ייעוד", "עיצוב עירוני"] }]),
+    'השכבה "מוקדי פיתוח ושימוש עירוניים" מופיעה בכמה תשריטים: אזורי ייעוד, עיצוב עירוני. מאיזה תשריט להציג אותה?',
+  );
+  assert.ok(MAP_RESOLVE_PROMPT.includes("תשריט"));
+  assert.ok(MAP_RESOLVE_PROMPT.includes("never a place"));
 });

@@ -12,6 +12,7 @@ import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRunt
 import { getPlanLocations } from "../ta5500/ragClient";
 import type { PlanLocations } from "../ta5500/types";
 import { TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
+import { matchCatalog } from "../ta5500/catalog";
 import { planFocus, focusStore, type FocusState, type Place } from "../ta5500/focus";
 import {
   getView,
@@ -21,6 +22,7 @@ import {
   applyFocus,
   resetFocus,
   hideLayers,
+  listCatalog,
   FocusSupersededError,
 } from "../ta5500/mapFocus";
 import {
@@ -38,6 +40,7 @@ import {
   notInPlanNote,
   shownLine,
   whichAreaQuestion,
+  whichGroupQuestion,
 } from "../ta5500/prompts";
 import {
   composeOutput,
@@ -55,6 +58,7 @@ import {
 
 const AGENT_ID = "ta5500-map";
 const TAG = "ta5500 map agent";
+const ASK_LAYER_SUMMARY = "asked the user from which drawing to show the layer; waiting for the answer; do not retry";
 const ASK_PLACE_SUMMARY = "asked the user which planning area was meant; waiting for the answer; do not retry";
 
 const resolveSchema = z.object({
@@ -145,7 +149,12 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
       const loc = locations!;
       const placeText = r.place?.trim() ?? "";
       const topicText = r.topic?.trim() ?? "";
-      const layers = topicLayers(topicText, loc);
+      // Catalog layers (the map's own layer titles, by drawing) win over the six known plan layers for show / filter;
+      // hide keeps acting on the known layers only.
+      const catalog = view && r.action !== "hide" ? matchCatalog(topicText, listCatalog(view)) : { layers: [], ambiguous: [] };
+      const useCatalog = catalog.layers.length > 0 || catalog.ambiguous.length > 0;
+      const layers = useCatalog ? new Map<LayerKey, string[]>() : topicLayers(topicText, loc);
+      const wholeUids = catalog.layers.map((e) => e.uid);
 
       // The place is resolved for every action (hide too: a place outside Tel Aviv-Yafo is declined).
       let place: Place | null = null;
@@ -161,12 +170,14 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
         else ({ place, geometry } = resolved);
       }
 
-      const step = mapStep(r.action, { placeText, place, layers, outside, notInPlan: !!notInPlan, ambiguousPlace: !!ambiguous });
+      const step = mapStep(r.action, { placeText, place, layers, outside, notInPlan: !!notInPlan, ambiguousPlace: !!ambiguous, ambiguousLayers: catalog.ambiguous.length > 0, wholeLayers: wholeUids.length });
       switch (step) {
         case "outside":
           return agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" });
         case "ask_place":
           return agentResult({ output: whichAreaQuestion(placeText, ambiguous!), ok: true, summary: ASK_PLACE_SUMMARY });
+        case "ask_layer":
+          return agentResult({ output: whichGroupQuestion(catalog.ambiguous), ok: true, summary: ASK_LAYER_SUMMARY });
         case "not_in_plan":
           return agentResult({ output: notInPlanNote(notInPlan!), ok: true, summary: `${r.action}: area ${notInPlan} not in the plan` });
         case "no_place":
@@ -222,16 +233,16 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
             const { kept, skipped } = layers.size
               ? await keepLayersWithFeatures(view, layers, geometry)
               : { kept: layers, skipped: [] as LayerKey[] };
-            const plan = planFocus(place, kept);
+            const plan = planFocus(place, kept, wholeUids);
             if (plan.case !== "none") {
               applied = await applyFocus(view, plan, place, geometry);
               shown = applied.layers.map((l) => l.layerKey);
             }
-            line = shownLine(place?.label ?? null, labelsOf(shown), labelsOf(skipped));
+            line = shownLine(place?.label ?? null, [...labelsOf(shown), ...(applied?.wholeLayers.map((w) => w.title) ?? [])], labelsOf(skipped));
           } catch (err) {
             return mapFailed(err, r.action);
           }
-          const topicNote = topicText && !layers.size ? NO_TOPIC_NOTE : "";
+          const topicNote = topicText && !layers.size && !wholeUids.length ? NO_TOPIC_NOTE : "";
           return agentResult({
             output: composeOutput(line, topicNote) || NO_TOPIC_REPLY,
             ok: true,
