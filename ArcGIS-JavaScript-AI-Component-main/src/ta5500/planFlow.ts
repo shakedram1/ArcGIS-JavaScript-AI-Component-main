@@ -183,6 +183,7 @@ export type PlaceTextStep =
   | { kind: "none" }
   | { kind: "coded"; place: Place }
   | { kind: "not_in_plan"; code: string }
+  | { kind: "ambiguous"; options: Place[] }
   | { kind: "geocode" };
 
 /**
@@ -198,6 +199,21 @@ function isWholePlanOrCity(t: string): boolean {
   return WHOLE_PLAN_OR_CITY.test(t.replace(/["'״׳]/g, "").replace(/\s+/g, " ").trim());
 }
 
+const nameKey = (s: string) => s.replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim();
+
+/**
+ * Planning areas whose name contains `text` as whole words (quotes ignored), in plan order; when no area matches,
+ * the sub-areas that do. Labels come from the plan data.
+ */
+export function placesByName(text: string | null | undefined, loc: PlanLocations): Place[] {
+  const t = nameKey(text ?? "");
+  if (!t) return [];
+  const hit = (name: string) => hasWord(nameKey(name), t);
+  const areas = loc.areas.filter((a) => hit(a.name));
+  if (areas.length) return areas.map((a) => ({ kind: "area" as const, codes: [a.code], label: areaLabel([a.code], loc) }));
+  return loc.subareas.filter((a) => hit(a.name)).map((a) => ({ kind: "subarea" as const, codes: [a.code], label: areaLabel([a.code], loc) }));
+}
+
 export function placeTextStep(text: string | null | undefined, loc: PlanLocations): PlaceTextStep {
   const t = (text ?? "").trim();
   if (!t) return { kind: "none" };
@@ -205,6 +221,9 @@ export function placeTextStep(text: string | null | undefined, loc: PlanLocation
   const place = placeFromText(t, loc) ?? (area ? placeFromText(area, loc) : null);
   if (place) return { kind: "coded", place };
   if (isWholePlanOrCity(t)) return { kind: "none" };
+  const named = placesByName(t, loc);
+  if (named.length === 1) return { kind: "coded", place: named[0] };
+  if (named.length > 1) return { kind: "ambiguous", options: named };
   if (area) return { kind: "not_in_plan", code: area };
   return { kind: "geocode" };
 }
@@ -285,12 +304,13 @@ export function topicLayers(topic: string | null | undefined, loc: PlanLocations
 }
 
 export type MapAction = "go_to" | "show" | "hide" | "filter" | "reset";
-export type MapStep = "reset" | "outside" | "not_in_plan" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
+export type MapStep = "reset" | "outside" | "not_in_plan" | "ask_place" | "go_to" | "focus" | "hide" | "hide_partial" | "no_place" | "no_topic";
 
 /**
  * What the Map agent does (never acts on things not in the plan):
  * - reset → reset;
  * - a named place outside Tel Aviv-Yafo (every action but reset) → outside (OUTSIDE_TA_REPLY, map unchanged);
+ * - a place name matching several planning areas (every action but reset) → ask_place (whichAreaQuestion, map unchanged);
  * - a named area code that is not in the plan (every action but reset) → not_in_plan (notInPlanNote, map unchanged);
  * - go_to → go to the resolved place, or no_place;
  * - show / filter / hide → no_place when a place was named but not resolved (the map stays unchanged);
@@ -306,11 +326,13 @@ export function mapStep(
     layers: Map<LayerKey, string[]>;
     outside?: boolean;
     notInPlan?: boolean;
+    ambiguousPlace?: boolean;
   },
 ): MapStep {
   if (action === "reset") return "reset";
   if (s.outside) return "outside";
   if (s.notInPlan) return "not_in_plan";
+  if (s.ambiguousPlace) return "ask_place";
   if (action === "go_to") return s.place ? "go_to" : "no_place";
   if ((s.placeText ?? "").trim() && !s.place) return "no_place";
   if (action === "hide") {

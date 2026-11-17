@@ -15,6 +15,7 @@ import {
   PLAN_SERVICE_DOWN_SUMMARY,
   planPlaceNote,
   placeTextStep,
+  placesByName,
   REQUEST_FAILED_SUMMARY,
   unplannedAreaCode,
   useStoredPlace,
@@ -32,6 +33,7 @@ import {
   placeSearchFilters,
 } from "../planFlow";
 import type { PlanLocations } from "../types";
+import type { Place } from "../focus";
 
 const fixtureJson = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const loc: PlanLocations = JSON.parse(fixtureJson("locations.json").content[0].text);
@@ -226,7 +228,7 @@ test("placeTextStep: plan codes, area codes not in the plan are never geocoded",
   assert.equal((placeTextStep("אזור 105", loc) as { place: { codes: string[] } }).place.codes[0], "105");
   assert.deepEqual(placeTextStep("610", loc), { kind: "not_in_plan", code: "610" });
   assert.deepEqual(placeTextStep("אזור 999", loc), { kind: "not_in_plan", code: "999" });
-  assert.deepEqual(placeTextStep("רמת אביב", loc), { kind: "geocode" });
+  assert.deepEqual(placeTextStep("דיזנגוף 50", loc), { kind: "geocode" });
   assert.deepEqual(placeTextStep("  ", loc), { kind: "none" });
   assert.deepEqual(placeTextStep(null, loc), { kind: "none" });
 });
@@ -235,7 +237,30 @@ test("placeTextStep: the plan itself or the whole city is not a place (never geo
   for (const t of ["תא/5500", "תא 5500", "תכנית 5500", "תוכנית 5500", "תוכנית תא/5500", "5500", "התוכנית", "תוכנית המתאר", "תל אביב", "תל אביב-יפו", "העיר", "בתל אביב"]) {
     assert.deepEqual(placeTextStep(t, loc), { kind: "none" }, t);
   }
-  assert.deepEqual(placeTextStep("רמת אביב", loc), { kind: "geocode" });
+  assert.deepEqual(placeTextStep("דיזנגוף 50", loc), { kind: "geocode" });
+});
+
+test("placesByName: areas first, else sub-areas; whole words; quotes ignored", () => {
+  assert.deepEqual(placesByName("רמת אביב", loc).map((p) => p.codes[0]), ["102", "103", "104", "106"]);
+  assert.deepEqual(placesByName("הצפון הישן", loc).map((p) => p.codes[0]), ["301"]);
+  assert.deepEqual(placesByName("שדה דב", loc).map((p) => p.codes[0]), ["101"]);
+  assert.deepEqual(placesByName("רובע שדה דב", loc), [{ kind: "subarea", codes: ["101ו"], label: "אזור 101ו – רובע שדה דב" }]);
+  assert.deepEqual(placesByName("רמת אביב ג'", loc).map((p) => p.codes[0]), ["102"]);
+  assert.deepEqual(placesByName("דיזנגוף 50", loc), []);
+});
+
+test("placeTextStep: a name of one plan area is coded, of several is ambiguous", () => {
+  assert.equal((placeTextStep("הצפון הישן", loc) as { place: Place }).place.codes[0], "301");
+  assert.equal((placeTextStep("רובע שדה דב", loc) as { place: Place }).place.codes[0], "101ו");
+  const amb = placeTextStep("רמת אביב", loc);
+  assert.equal(amb.kind, "ambiguous");
+  assert.equal((amb as { options: Place[] }).options.length, 4);
+  assert.deepEqual(placeTextStep("דיזנגוף 50", loc), { kind: "geocode" });
+});
+
+test("mapStep: an ambiguous place is asked before anything else but reset", () => {
+  assert.equal(mapStep("show", { placeText: "רמת אביב", place: null, layers: new Map(), ambiguousPlace: true }), "ask_place");
+  assert.equal(mapStep("reset", { placeText: "רמת אביב", place: null, layers: new Map(), ambiguousPlace: true }), "reset");
 });
 
 test("unplannedAreaCode: dropped area-shaped values that are not plan areas", () => {

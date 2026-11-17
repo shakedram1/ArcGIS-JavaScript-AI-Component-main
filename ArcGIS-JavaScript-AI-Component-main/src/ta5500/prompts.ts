@@ -4,6 +4,8 @@
 // Prompt templates are LangChain f-string templates (the SDK builds them with `fromTemplate`):
 // `{name}` is an input variable, literal braces must be written `{{` / `}}`.
 
+import type { Place } from "./focus";
+
 // ---------- Router descriptions (spec §5.2) ----------
 
 export const PLAN_AGENT_DESCRIPTION =
@@ -45,6 +47,7 @@ Produce:
 Rules:
 - Never invent codes, area numbers, zone type ids or section numbers. Copy only values that appear in the conversation or in the current focus; when unsure, leave the field empty. The values are checked against the plan afterwards.
 - When the request names no place and refers back to one ("שם", "באזור הזה"), take the place from the current focus or the earlier messages.
+- If the assistant's last message asked which planning area was meant and the latest request answers it, write the question again for the chosen area and put its code in areas.
 - Write the question in Hebrew, in gender-neutral wording.`;
 
 /** Plan agent, step 3 (spec §5.3). Inputs: {question}, {context} (numbered plan excerpts with citation and page). */
@@ -91,7 +94,8 @@ Produce:
 
 Rules:
 - Never invent codes, area numbers or places. Copy only what appears in the conversation or the current focus; leave a field null when unsure.
-- Do not judge whether the place is in Tel Aviv-Yafo; that is checked afterwards.`;
+- Do not judge whether the place is in Tel Aviv-Yafo; that is checked afterwards.
+- If the assistant's last message asked which planning area was meant and the latest request answers it, put the chosen area code in place and keep the original action and topic.`;
 
 // ---------- User-facing Hebrew copy ----------
 
@@ -110,6 +114,11 @@ export const PLAN_NO_PLACE_MAP_UNCHANGED_NOTE = "לא זיהיתי את המקו
 /** A planning-area code that is not in the plan: notInPlanNote("999") → "אזור 999 אינו מופיע בתוכנית." */
 export function notInPlanNote(code: string): string {
   return `אזור ${code} אינו מופיע בתוכנית.`;
+}
+
+/** A place name that matches several planning areas: ask which one; the map is unchanged. */
+export function whichAreaQuestion(text: string, options: Place[]): string {
+  return `"${text}" מתאים לכמה אזורי תכנון: ${options.map((o) => o.label).join("; ")}. לאיזה מהם הכוונה?`;
 }
 
 export const OUTSIDE_TA_REPLY = "המקום שציינת נמצא מחוץ לתל אביב-יפו, וכאן אפשר לקבל מידע רק על תוכנית המתאר של העיר.";

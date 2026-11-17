@@ -29,6 +29,7 @@ import {
   MAP_FAILED_NOTE,
   FOCUS_CLEARED_REPLY,
   shownLine,
+  whichAreaQuestion,
 } from "../ta5500/prompts";
 import {
   answerContext,
@@ -161,6 +162,15 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           if (step.kind === "coded") {
             place = step.place;
             placeGeometry = view ? await resolvePlaceGeometry(view, place).catch(() => null) : null;
+          } else if (step.kind === "ambiguous") {
+            return {
+              done: true,
+              ...agentResult({
+                output: whichAreaQuestion(placeText, step.options),
+                ok: true,
+                summary: "asked the user which planning area was meant; waiting for the answer; do not retry",
+              }),
+            };
           } else if (step.kind === "not_in_plan") {
             unplannedArea = step.code;
           } else if (step.kind === "geocode") {

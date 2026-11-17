@@ -28,6 +28,7 @@ import {
   PLAN_NO_PLACE_MAP_UNCHANGED_NOTE,
   notInPlanNote,
   inPlace,
+  whichAreaQuestion,
 } from "../prompts";
 
 test("descriptions are non-empty and say when not to use the agent", () => {
@@ -130,4 +131,13 @@ test("user-facing copy and examples never use area 610 (not in the plan)", () =>
   for (const [name, value] of Object.entries(prompts)) {
     if (typeof value === "string") assert.ok(!value.includes("610"), name);
   }
+});
+
+test("whichAreaQuestion lists the options and asks", () => {
+  const q = whichAreaQuestion("רמת אביב", [
+    { kind: "area", codes: ["102"], label: "אזור 102 – רמת אביב ג'" },
+    { kind: "area", codes: ["106"], label: "אזור 106 – רמת אביב א'" },
+  ]);
+  assert.equal(q, "\"רמת אביב\" מתאים לכמה אזורי תכנון: אזור 102 – רמת אביב ג'; אזור 106 – רמת אביב א'. לאיזה מהם הכוונה?");
+  assert.ok(RESOLVE_PROMPT.includes("which planning area"));
 });

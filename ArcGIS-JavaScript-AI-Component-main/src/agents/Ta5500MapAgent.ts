@@ -37,6 +37,7 @@ import {
   goToLine,
   notInPlanNote,
   shownLine,
+  whichAreaQuestion,
 } from "../ta5500/prompts";
 import {
   composeOutput,
@@ -54,6 +55,7 @@ import {
 
 const AGENT_ID = "ta5500-map";
 const TAG = "ta5500 map agent";
+const ASK_PLACE_SUMMARY = "asked the user which planning area was meant; waiting for the answer; do not retry";
 
 const resolveSchema = z.object({
   action: z.enum(["go_to", "show", "hide", "filter", "reset"]),
@@ -77,7 +79,7 @@ function mapFailed(err: unknown, summary: string) {
   return agentResult({ output: MAP_FAILED_NOTE, ok: true, summary: mapFailedSummary(summary) });
 }
 
-type Resolved = { place: Place | null; geometry: Geometry | null } | { outside: true } | { notInPlan: string };
+type Resolved = { place: Place | null; geometry: Geometry | null } | { outside: true } | { notInPlan: string } | { ambiguous: Place[] };
 
 /**
  * Same order as the Plan agent (planFlow.placeTextStep): plan codes / entities first; an area-shaped code that is
@@ -87,6 +89,7 @@ async function resolvePlace(view: MapView | null, text: string, loc: PlanLocatio
   const step = placeTextStep(text, loc);
   if (step.kind === "none") return { place: null, geometry: null };
   if (step.kind === "not_in_plan") return { notInPlan: step.code };
+  if (step.kind === "ambiguous") return { ambiguous: step.options };
   if (step.kind === "coded") {
     const geometry = view ? await resolvePlaceGeometry(view, step.place).catch(() => null) : null;
     return { place: step.place, geometry };
@@ -149,17 +152,21 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
       let geometry: Geometry | null = null;
       let outside = false;
       let notInPlan: string | null = null;
+      let ambiguous: Place[] | null = null;
       if (placeText) {
         const resolved = await resolvePlace(view, placeText, loc);
         if ("outside" in resolved) outside = true;
+        else if ("ambiguous" in resolved) ambiguous = resolved.ambiguous;
         else if ("notInPlan" in resolved) notInPlan = resolved.notInPlan;
         else ({ place, geometry } = resolved);
       }
 
-      const step = mapStep(r.action, { placeText, place, layers, outside, notInPlan: !!notInPlan });
+      const step = mapStep(r.action, { placeText, place, layers, outside, notInPlan: !!notInPlan, ambiguousPlace: !!ambiguous });
       switch (step) {
         case "outside":
           return agentResult({ output: OUTSIDE_TA_REPLY, ok: true, summary: "place outside Tel Aviv-Yafo" });
+        case "ask_place":
+          return agentResult({ output: whichAreaQuestion(placeText, ambiguous!), ok: true, summary: ASK_PLACE_SUMMARY });
         case "not_in_plan":
           return agentResult({ output: notInPlanNote(notInPlan!), ok: true, summary: `${r.action}: area ${notInPlan} not in the plan` });
         case "no_place":
