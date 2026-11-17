@@ -231,6 +231,13 @@ test("placeTextStep: plan codes, area codes not in the plan are never geocoded",
   assert.deepEqual(placeTextStep(null, loc), { kind: "none" });
 });
 
+test("placeTextStep: the plan itself or the whole city is not a place (never geocoded)", () => {
+  for (const t of ["תא/5500", "תא 5500", "תכנית 5500", "תוכנית 5500", "תוכנית תא/5500", "5500", "התוכנית", "תוכנית המתאר", "תל אביב", "תל אביב-יפו", "העיר", "בתל אביב"]) {
+    assert.deepEqual(placeTextStep(t, loc), { kind: "none" }, t);
+  }
+  assert.deepEqual(placeTextStep("רמת אביב", loc), { kind: "geocode" });
+});
+
 test("unplannedAreaCode: dropped area-shaped values that are not plan areas", () => {
   assert.equal(unplannedAreaCode(["999"], loc), "999");
   assert.equal(unplannedAreaCode(validateRequest({ areas: ["999"] }, loc).dropped, loc), "999");

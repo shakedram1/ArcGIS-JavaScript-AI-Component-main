@@ -190,12 +190,21 @@ export type PlaceTextStep =
  * (not_in_plan — never sent to the geocoder, which could match an unrelated address); otherwise the Tel Aviv
  * geocoder (geocode).
  */
+const WHOLE_PLAN_OR_CITY =
+  /^(?:ב|ל|של\s+)?(?:(?:ה?תוכנית|ה?תכנית)(?:\s+המתאר)?(?:\s+(?:של\s+)?(?:ה?עיר|תל[\s-]*אביב(?:[\s-]*יפו)?))?(?:\s+תא\s*\/?\s*)?(?:\s*5500)?|תא\s*\/?\s*5500|5500|ה?עיר|תל[\s-]*אביב(?:[\s-]*יפו)?)$/;
+
+/** The plan itself ("תא/5500", "התוכנית") or the whole city is not a place to focus on or geocode. */
+function isWholePlanOrCity(t: string): boolean {
+  return WHOLE_PLAN_OR_CITY.test(t.replace(/["'״׳]/g, "").replace(/\s+/g, " ").trim());
+}
+
 export function placeTextStep(text: string | null | undefined, loc: PlanLocations): PlaceTextStep {
   const t = (text ?? "").trim();
   if (!t) return { kind: "none" };
   const area = areaShapedCode(t);
   const place = placeFromText(t, loc) ?? (area ? placeFromText(area, loc) : null);
   if (place) return { kind: "coded", place };
+  if (isWholePlanOrCity(t)) return { kind: "none" };
   if (area) return { kind: "not_in_plan", code: area };
   return { kind: "geocode" };
 }

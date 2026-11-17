@@ -40,3 +40,5 @@ test-prompts.txt
 
 # HAR captures — may contain auth tokens, API keys, full request/response bodies
 *.har
+
+masterplan5500.pdf
