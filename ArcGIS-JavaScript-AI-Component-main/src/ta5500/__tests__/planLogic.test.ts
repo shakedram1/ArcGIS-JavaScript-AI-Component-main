@@ -124,3 +124,7 @@ test("isInsideExtent", () => {
   assert.equal(isInsideExtent({ x: 5, y: -1 }, e), false);
   assert.equal(isInsideExtent({ x: 10, y: 10 }, e), true);
 });
+
+test("a text-only section (4.5, תכנון בר קיימה) has no map layers", () => {
+  assert.equal(layersForSections(["4.5"], loc.gis_codes).size, 0);
+});

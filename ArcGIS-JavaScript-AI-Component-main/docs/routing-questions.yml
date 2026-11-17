@@ -216,3 +216,73 @@
 # team questions
 # Reserved for the team's own wording (spec open item 1). Add entries in the format above;
 # at least half of the final set should be users' real requests.
+
+# ---- map interaction: layers by drawing, ambiguity, reset (spec 2026-11-17-map-interaction-design.md §5) ----
+- q: "תציג לי את גבולות התוכנית"
+  kind: map
+  expect: ta5500-map
+  note: map unchanged; asks which of the 5 drawings (אזורי ייעוד, עיצוב עירוני, אזורי ומרחבי תכנון, סביבה ותשתיות, תחבורה וניידות)
+  result: pending
+- q: "של עיצוב עירוני"
+  kind: map
+  expect: ta5500-map
+  after: "תציג לי את גבולות התוכנית"
+  note: shows the עיצוב עירוני boundary layer and goes to its full extent; other layers hidden
+  result: pending
+- q: "אילו צירי תכנון יש באיזור ייעוד 5500 באזור הצפון הישן?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: shows צירי תכנון וקווי תיחום of אזורי ייעוד clipped to area 301, map at 301
+  result: pending
+- q: "תאפס לי את המפה"
+  kind: map
+  expect: ta5500-map
+  note: layer visibility and view return to the startup state (not "everything hidden")
+  result: pending
+- q: "מהן ההוראות בנושא תכנון בר קיימה"
+  kind: plan
+  expect: ta5500-plan
+  note: section 4.5; the map is unchanged (text-only section)
+  result: pending
+- q: "מהן ההוראות המיוחדות לאזור צפון מערב העיר ושדה דב"
+  kind: plan+place
+  expect: ta5500-plan
+  note: focus on area 101 with the layers of the cited sections; table 5.4 instructions
+  result: pending
+- q: "איך התוכנית משפיעה על כפר סבא והסביבה"
+  kind: out_of_scope
+  expect: ta5500-scope
+  note: map unchanged
+  result: pending
+- q: "מה מותר לבנות ברובע שדה דב?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: focus on sub-area 101ו
+  result: pending
+- q: "איפה יש אזורי מגורים בבנייה רבת קומות?"
+  kind: plan
+  expect: ta5500-plan
+  note: no place = whole city; zone type 3.2.5 highlighted, map at its extent
+  result: pending
+- q: "ומה לגבי גובה הבנייה שם?"
+  kind: plan+place
+  expect: ta5500-plan
+  after: "מהן ההוראות המיוחדות לאזור צפון מערב העיר ושדה דב"
+  note: focus on 101 kept; heights in 101
+  result: pending
+- q: "תציג לי את מוקדי הפיתוח"
+  kind: map
+  expect: ta5500-map
+  note: map unchanged; asks אזורי ייעוד or עיצוב עירוני
+  result: pending
+- q: "מה מותר לבנות ברמת אביב?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: map unchanged; asks which of areas 102, 103, 104, 106
+  result: pending
+- q: "102"
+  kind: plan+place
+  expect: ta5500-plan
+  after: "מה מותר לבנות ברמת אביב?"
+  note: answers for area 102 and focuses on it
+  result: pending

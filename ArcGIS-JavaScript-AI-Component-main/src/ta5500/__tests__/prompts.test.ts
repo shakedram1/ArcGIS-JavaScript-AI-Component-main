@@ -151,3 +151,8 @@ test("whichGroupQuestion names the layer and the drawings", () => {
   assert.ok(MAP_RESOLVE_PROMPT.includes("תשריט"));
   assert.ok(MAP_RESOLVE_PROMPT.includes("never a place"));
 });
+
+test("plan description: the map changes only for a place or a layer", () => {
+  assert.ok(!PLAN_AGENT_DESCRIPTION.includes("always shows"));
+  assert.ok(PLAN_AGENT_DESCRIPTION.includes("text-only answer leaves the map unchanged"));
+});
