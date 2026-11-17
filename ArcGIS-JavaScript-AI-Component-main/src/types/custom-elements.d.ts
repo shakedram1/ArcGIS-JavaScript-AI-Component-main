@@ -5,6 +5,7 @@ declare namespace JSX {
     "calcite-shell-panel": any;
     "calcite-panel": any;
     "calcite-button": any;
+    "calcite-icon": any;
     "calcite-action": any;
     "calcite-dialog": any;
     "calcite-modal": any;
@@ -33,6 +34,8 @@ declare namespace JSX {
     "arcgis-zoom": any;
     "arcgis-layer-list": any;
     "arcgis-basemap-gallery": any;
+    "arcgis-distance-measurement-2d": any;
+    "arcgis-area-measurement-2d": any;
     // ArcGIS Assistant and agents
     "arcgis-assistant": any;
     "arcgis-assistant-help-agent": any;

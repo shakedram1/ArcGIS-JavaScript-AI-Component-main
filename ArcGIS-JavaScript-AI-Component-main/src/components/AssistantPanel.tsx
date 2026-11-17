@@ -48,6 +48,8 @@ export interface AssistantPanelProps {
   isTa5500: boolean;
   /** Show the assistant's agent-execution log in the chat (`?mode=edit`, for routing tests). */
   logEnabled: boolean;
+  /** Rendered inside the message box, in its footer next to the send button. */
+  footerContent?: React.ReactNode;
 }
 
 /**
@@ -71,6 +73,7 @@ export function AssistantPanel({
   onDismissEmptyMapNotice,
   isTa5500,
   logEnabled,
+  footerContent,
 }: AssistantPanelProps) {
   const assistantRef = useRef<AssistantElement>(null);
 
@@ -200,6 +203,7 @@ export function AssistantPanel({
                         title="שיחה חדשה"
                         onClick={() => void handleNewChat()}
                       ></calcite-action>
+                      {footerContent && <div slot="entry-actions-start">{footerContent}</div>}
                       <arcgis-assistant-help-agent></arcgis-assistant-help-agent>
                       {!isTa5500 && <arcgis-assistant-navigation-agent></arcgis-assistant-navigation-agent>}
                       <arcgis-assistant-data-exploration-agent></arcgis-assistant-data-exploration-agent>

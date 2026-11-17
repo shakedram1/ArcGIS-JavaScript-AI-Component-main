@@ -447,7 +447,7 @@ Tips:
 - Ask about the plan explicitly, for example "מה ההוראות בתוכנית תא/5500 לאזור 102א' דרום גלילות?". Questions that only mention a planning area can be routed to the map's data-exploration agent instead.
 - Check that it is the MCP agent that answered: the browser's network tab should show `tools/call` requests to `/api/mcp`.
 - Known issue: one test question ended with "The MCP Hub server did not return a response". The cause is not known yet.
-- `mcp-hub.config.json` holds your path and the API key. It is git-ignored; do not commit it.
+- `mcp-hub.config.json` holds your path. It is git-ignored; do not commit it. The RAG API key can stay out of it: `npm run hub` loads `.env.local` (`--env-file`), so `RAG_API_KEY=<key>` there is inherited by the ta5500 server. A relative `args` path (for example `../../ta5500-rag/mcp/server.mjs`) resolves from the folder where the hub starts, so start the hub from this repo's app folder (the one containing `package.json`).
 
 ## Assistant Notes
 

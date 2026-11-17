@@ -10,8 +10,9 @@
     "test": "tsx --test src/agents/__tests__/*.test.ts src/ta5500/__tests__/*.test.ts",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "test:local": "npx tsx tests/run-tests.ts",
-    "hub": "npx tsx hub/server.ts",
-    "hub:dev": "npx tsx --watch hub/server.ts"
+    "test:unit": "tsx --test src/utils/focusFilters.test.ts src/utils/focusOverlap.test.ts src/utils/focusNotes.test.ts",
+    "hub": "npx tsx --env-file=.env.local hub/server.ts",
+    "hub:dev": "npx tsx --env-file=.env.local --watch hub/server.ts"
   },
   "dependencies": {
     "@arcgis/ai-components": "5.1.27",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/node": "^20.19.43",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",

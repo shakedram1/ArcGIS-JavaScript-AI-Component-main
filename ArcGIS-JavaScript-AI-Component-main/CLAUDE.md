@@ -19,6 +19,7 @@ npm run build        # vite build (does NOT type-check)
 npm run preview      # serve the build on :4173
 npx tsc --noEmit     # type-check src/ (tsconfig only includes src/, not hub/)
 npm test             # tsx --test: src/agents/__tests__ and src/ta5500/__tests__
+npm run test:unit       # tsx --test: the polygon-focus tests in src/utils/focus*.test.ts
 npm run typecheck:test  # type-check the tests (tsconfig.test.json; tsconfig.json excludes __tests__)
 npm run test:local   # npx tsx tests/run-tests.ts (local-only harness)
 ```

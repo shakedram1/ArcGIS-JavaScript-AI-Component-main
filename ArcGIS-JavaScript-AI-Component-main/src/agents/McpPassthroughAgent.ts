@@ -3,13 +3,15 @@ import { HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { StateGraph, Annotation, START, END } from "@langchain/langgraph/web";
 import { z } from "zod";
-import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, excludeHubServers, excludeServerTools, prioritizeRequestedGeoFocus, type McpToolDef } from "./mcpAgentCore";
+import { buildToolPromptText, dedupeGeoEntities, deriveGeoEntities, enrichGeoEntityContext, excludeHubServers, excludeServerTools, normalizeUrl, prioritizeRequestedGeoFocus, type McpToolDef } from "./mcpAgentCore";
 import { MCP_NOT_PLAN_SUFFIX } from "../ta5500/prompts";
 import { abortActiveMcpRequests, callMcpTool, clearMcpCaches, isAbortLikeError, listHubServers, listMcpTools, type HubServerSummary } from "../utils/mcpClient";
 import { inputSchemaToZod, normalizeToolArgsForCall, truncateDescription } from "../utils/mcpZodSchema";
 import { clearMcpGeoLayer, renderMcpGeoEntities, type GeoEntity } from "../utils/mcpGeoRenderer";
 import { setLastAssistantGeoSnapshot } from "../utils/assistantState";
 import { agentRuntimeChannels, agentResult, readAgentRequest, seedAgentMessages } from "./agentRuntime";
+import { applyFocusToSearchArgs, type GisCode } from "../utils/focusFilters";
+import { getActiveFocus, getFocusState, setFocusEnabled } from "../utils/focusStore";
 import { normalizeMessages, contentToText, getLastAiMessage, isAiMessageLike, isToolMessageLike, hasToolCalls, extractMessageText } from "../utils/agentHelpers";
 
 export interface McpPassthroughAgentContext {
@@ -260,6 +262,34 @@ function bindAssistantCancel(assistant: HTMLElement): void {
   cancelBoundAssistants.add(assistant);
 }
 
+/** `callMcpTool` plus the app-side behaviour: the polygon tool runs in the browser, and plan searches get the active polygon focus merged in. */
+async function callMcpToolWithFocus(endpointUrl: string, name: string, args: Record<string, unknown>): Promise<string> {
+  if (name === POLYGON_TOOL_NAME) return runPolygonTool(args);
+  const focus = /(^|__)search_plan$/.test(name) ? getActiveFocus() : null;
+  const callArgs = focus ? applyFocusToSearchArgs(args, focus.filters, focus.notes) : args;
+  return callMcpTool(endpointUrl, name, callArgs);
+}
+
+const gisCodesCache = new Map<string, Promise<GisCode[]>>();
+
+/** The RAG's GIS-code table (`gis_codes` of the plan locations), fetched once per hub through its `get_plan_locations` tool. */
+export function loadGisCodes(endpointUrl: string): Promise<GisCode[]> {
+  const key = normalizeUrl(endpointUrl);
+  const cached = gisCodesCache.get(key);
+  if (cached) return cached;
+  const pending = (async () => {
+    const def = (await listMcpTools(endpointUrl)).find((d) => parseQualifiedToolName(d.name).toolName === "get_plan_locations");
+    if (!def) throw new Error("The plan RAG tool get_plan_locations is not available in the MCP hub.");
+    const text = await callMcpTool(endpointUrl, def.name, {});
+    const codes = JSON.parse(text)?.gis_codes;
+    if (!Array.isArray(codes)) throw new Error(`The plan locations have no gis_codes: ${text.slice(0, 200)}`);
+    return codes as GisCode[];
+  })();
+  gisCodesCache.set(key, pending);
+  pending.catch(() => gisCodesCache.delete(key)); // a failed fetch is retried on the next call
+  return pending;
+}
+
 function parseQualifiedToolName(name: string): { serverId: string | null; toolName: string } {
   const idx = name.indexOf("__");
   if (idx < 0) return { serverId: null, toolName: name };
@@ -274,12 +304,52 @@ function summarizeToolDescription(def: McpToolDef, serverLabel?: string): string
     : `${summary} (MCP tool: ${toolName})`;
 }
 
+/** Prompt block with the polygon state, rebuilt on every run. */
+function focusPromptText(): string {
+  const { polygon, enabled, status, filters } = getFocusState();
+  if (!polygon) {
+    return `\n\nPolygon focus: no polygon is drawn on the map, so there is nothing to use as a query filter. If the user asks to query by a polygon, tell them to draw one first.`;
+  }
+  if (!enabled) {
+    return `\n\nPolygon focus: a polygon is drawn but is NOT used as a query filter. If the user asks to query by it, call ${POLYGON_TOOL_NAME} with enabled=true first.`;
+  }
+  if (status !== "ready") {
+    return `\n\nPolygon focus: the drawn polygon is selected as a query filter, but its intersection is not available (still computing or failed), so search_plan is not restricted by it.`;
+  }
+  const labels = { areas: "planning areas", zone_types: "zone types", entities: "entities", headings: "headings" } as const;
+  const matched = (Object.keys(labels) as (keyof typeof labels)[])
+    .filter((key) => filters[key].length)
+    .map((key) => `${labels[key]}: ${filters[key].join(", ")}`);
+  return [
+    "\n\nThe user selected a polygon on the map as the query focus. Questions about \"the polygon\", \"the selected area\" or \"here\" refer to it.",
+    "search_plan calls are restricted to it automatically, so do not copy its filters into the call.",
+    matched.length ? `The polygon intersects ${matched.join("; ")}.` : "",
+  ].filter(Boolean).join(" ");
+}
+
+// Handled in the app, not by the hub: the polygon lives in the browser.
+const POLYGON_TOOL_NAME = "use_polygon_as_filter";
+const POLYGON_TOOL_DESCRIPTION =
+  "Turns the user's drawn polygon on or off as the filter for plan (search_plan) queries. Call it only when the user explicitly asks to use or stop using the polygon. It takes effect for later search_plan calls in the same request.";
+
+function runPolygonTool(args: Record<string, unknown>): string {
+  const { polygon, status } = getFocusState();
+  if (!polygon) return "No polygon is drawn on the map, so there is nothing to use. Ask the user to draw one.";
+  if (status === "loading") return "The polygon's intersection is still being computed; ask the user to try again in a moment.";
+  if (status === "error") return "The polygon's intersection could not be computed.";
+  const enabled = Boolean(args.enabled);
+  setFocusEnabled(enabled);
+  return enabled ? "The polygon is now used as a query filter." : "The polygon is no longer used as a query filter.";
+}
+
 const MCP_ROUTING_BASE_DESCRIPTION =
   "Primary agent for external, non-map questions that need MCP tools or live data sources. " +
   "Use this when the answer depends on connected MCP tools, external services, or structured remote data rather than only what is already visible in the active map. " +
   "Prefer this agent whenever the answer is not already visible in the active map layers or current web map. " +
   "This agent already plots any geocodable results (points, addresses, areas) directly on the map as graphics with popups, as part of answering the question — it does not need a separate layer, FeatureServer, or map-editing agent to display or add its own results. " +
-  "Do not additionally select a map layer, data-exploration, or feature-layer-editing agent for the same request just because the user asked to see the results on the map or in a popup — this agent alone fully covers that.";
+  "Do not additionally select a map layer, data-exploration, or feature-layer-editing agent for the same request just because the user asked to see the results on the map or in a popup — this agent alone fully covers that. " +
+  // Descriptions are read once when the assistant starts, so this hint is static and only matters when a polygon is mentioned.
+  "When the user refers to a polygon they selected or drew on the map (פוליגון שנבחר / שצויר) and asks about the master plan — תא/5500, תוכנית המתאר, הוראות, שימושים, זכויות בנייה, רח\"ק, גובה, ייעוד, אזור תכנון — or asks whether a polygon exists, to use it as a filter (להשתמש בפוליגון כמסנן), or to stop using it, use this agent, not data exploration: these are answered from the TA5500 RAG (search_plan) or the polygon filter tool, not from map layer attributes.";
 
 function buildDescriptionFromTools(tools: McpToolDef[], serverName: string, hubServers: HubServerSummary[] = []): string {
   if (!tools.length) {
@@ -496,7 +566,7 @@ export function registerMcpPassthroughAgent(
           const { serverId } = parseQualifiedToolName(def.name);
           const toolServerLabel = serverId ? (serverLabels.get(serverId) || serverId) : undefined;
           return tool(
-            async (args: any) => callMcpTool(
+            async (args: any) => callMcpToolWithFocus(
               resolvedUrl,
               def.name,
               normalizeToolArgsForCall(def.inputSchema, (args as Record<string, unknown>) || {}),
@@ -509,8 +579,18 @@ export function registerMcpPassthroughAgent(
           );
         });
 
+        const polygonAlias = makeSafeToolAlias(mcpToolDefs.length);
+        aliasMap[polygonAlias] = POLYGON_TOOL_NAME;
+        langchainTools.push(
+          tool(async (args: any) => runPolygonTool(args ?? {}), {
+            name: polygonAlias,
+            description: POLYGON_TOOL_DESCRIPTION,
+            schema: z.object({ enabled: z.boolean().describe("true to use the polygon as a filter, false to stop using it") }) as any,
+          }),
+        );
+
         const response = await invokeToolPrompt({
-          promptText: `${buildToolPromptText(serverLabel, hubServers, mcpToolDefs.length, priorToolRounds)}${userText ? `\n\nCurrent user request: ${userText}` : ""}`,
+          promptText: `${buildToolPromptText(serverLabel, hubServers, mcpToolDefs.length, priorToolRounds)}${focusPromptText()}${userText ? `\n\nCurrent user request: ${userText}` : ""}`,
           messages: promptMessages,
           tools: langchainTools,
           temperature: 0,
@@ -560,7 +640,7 @@ export function registerMcpPassthroughAgent(
               const originalToolName = aliasMap[toolCall.name] || toolCall.name;
               const args = (toolCall.args as Record<string, unknown>) || {};
               collectedArgs.push(args);
-              const result = await callMcpTool(resolvedUrl, originalToolName, args);
+              const result = await callMcpToolWithFocus(resolvedUrl, originalToolName, args);
               if (isMcpRunStale(runToken)) return null;
               if (result) collectedOutputs.push(result);
               return new ToolMessage({ content: result, tool_call_id: toolCall.id ?? toolCall.name });
