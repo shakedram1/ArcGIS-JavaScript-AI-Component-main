@@ -14,7 +14,7 @@
       "label": "TA5500 RAG (תוכנית המתאר)",
       "transport": "stdio",
       "command": "node",
-      "args": ["<absolute path to ta5500-rag>/mcp/server.mjs"],
+      "args": ["C:/DEV/SRC/GeoAI_20261117/ta5500-rag/mcp/server.mjs"],
       "env": {
         "RAG_BASE_URL": "http://localhost:8000",
         "RAG_API_KEY": ""

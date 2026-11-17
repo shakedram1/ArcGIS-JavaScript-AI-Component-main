@@ -65,10 +65,15 @@ function far(features: ZoneAttrs[]): string {
   return lines.length ? lines.join("\n") : NONE;
 }
 
+const MAX_FLOORS = 100;
+
 function height(features: ZoneAttrs[]): string {
   // MaxGovaInc is the height step including the special instructions; k_gova is the zone's own step.
-  const withSpecial = Math.max(...nums(features, "MaxGovaInc"));
-  const own = Math.max(...nums(features, "k_gova"));
+  // Some zones (open urban area, expressway) carry the plan section number instead of a floor count:
+  // 3610 = section 3.6.10, 382 = section 3.8.2. No real zone has more than MAX_FLOORS floors, so those are no height.
+  const plausible = (field: string) => nums(features, field).filter((n) => n <= MAX_FLOORS);
+  const withSpecial = Math.max(...plausible("MaxGovaInc"));
+  const own = Math.max(...plausible("k_gova"));
   const n = Number.isFinite(withSpecial) ? withSpecial : own;
   return Number.isFinite(n) && n > 0 ? `עד ${fmt(n)} קומות` : NONE;
 }

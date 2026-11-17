@@ -5,7 +5,6 @@ import { clearFocus, setFocusPolygon } from "../utils/focusStore";
 import {
   PolygonGroupQueryController,
   QUERY_BUFFER_METERS,
-  type BoundaryLayerOption,
   type PolygonQueryResult,
 } from "../utils/polygonGroupQuery";
 
@@ -14,8 +13,6 @@ interface PolygonQueryPanelProps {
   isMapReady: boolean;
   webMapId: string;
 }
-
-type ExportChoice = "manual" | "boundary";
 
 /**
  * Draw a polygon → 100 m buffer → open the 5 planning layer groups with the layers that are
@@ -35,9 +32,6 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId }: Polyg
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [choice, setChoice] = useState<ExportChoice>("manual");
-  const [boundaryLayers, setBoundaryLayers] = useState<BoundaryLayerOption[]>([]);
-  const [boundaryKey, setBoundaryKey] = useState("");
 
   const runExport = async () => {
     const controller = controllerRef.current;
@@ -119,10 +113,6 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId }: Polyg
   };
 
   const openExportDialog = () => {
-    const options = controllerRef.current?.listPolygonLayers() ?? [];
-    setBoundaryLayers(options);
-    setBoundaryKey(options[0]?.key ?? "");
-    setChoice(result?.mode === "boundary" ? "boundary" : "manual");
     setDialogOpen(true);
   };
 
@@ -131,10 +121,7 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId }: Polyg
     if (!controller) return;
     setDialogOpen(false);
     setError(null);
-    if (choice === "boundary") {
-      exportAfterDrawRef.current = true;
-      void controller.analyzeBoundary(boundaryKey);
-    } else if (result?.mode === "manual") {
+    if (result?.mode === "manual") {
       void runExport(); // reuse the polygon that is already on the map
     } else {
       // No manual polygon yet: let the user draw one, then export automatically.
@@ -219,7 +206,7 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId }: Polyg
           <div dir="rtl" className="pq-dialog">
             <p>על איזה אזור לייצא את הדף?</p>
             <label className="pq-choice">
-              <input type="radio" name="pq-choice" checked={choice === "manual"} onChange={() => setChoice("manual")} />
+              <input type="radio" name="pq-choice" checked readOnly />
               <span>
                 <b>פוליגון ידני</b>
                 <br />
@@ -228,38 +215,6 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId }: Polyg
                   : "תצייר פוליגון על המפה והייצוא יתחיל מיד אחריו"}
               </span>
             </label>
-            <label className="pq-choice">
-              <input
-                type="radio"
-                name="pq-choice"
-                checked={choice === "boundary"}
-                onChange={() => setChoice("boundary")}
-                disabled={boundaryLayers.length === 0}
-              />
-              <span>
-                <b>כל גבול התכנית</b>
-                <br />
-                עם באפר חיצוני של {QUERY_BUFFER_METERS} מ׳
-              </span>
-            </label>
-            {choice === "boundary" && (
-              <div className="pq-boundary">
-                {boundaryLayers.length === 0 ? (
-                  <p className="pq-error">לא נמצאו שכבות פוליגון במפה</p>
-                ) : (
-                  <label>
-                    שכבת גבול התכנית:
-                    <select value={boundaryKey} onChange={(e) => setBoundaryKey(e.target.value)}>
-                      {boundaryLayers.map((l) => (
-                        <option key={l.key} value={l.key}>
-                          {l.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-            )}
           </div>
           <calcite-button slot="footer-start" appearance="outline" kind="neutral" onClick={() => setDialogOpen(false)}>
             ביטול
@@ -267,9 +222,8 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId }: Polyg
           <calcite-button
             slot="footer-end"
             onClick={confirmExport}
-            disabled={choice === "boundary" && !boundaryKey ? true : undefined}
           >
-            {choice === "manual" && result?.mode !== "manual" ? "צייר פוליגון" : "ייצוא"}
+            {result?.mode !== "manual" ? "צייר פוליגון" : "ייצוא"}
           </calcite-button>
         </calcite-dialog>
       )}

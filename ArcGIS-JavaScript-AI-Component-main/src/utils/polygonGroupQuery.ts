@@ -4,6 +4,7 @@ import SketchViewModel from "@arcgis/core/widgets/Sketch/SketchViewModel";
 import FeatureFilter from "@arcgis/core/layers/support/FeatureFilter";
 import * as geodesicBufferOperator from "@arcgis/core/geometry/operators/geodesicBufferOperator.js";
 import * as unionOperator from "@arcgis/core/geometry/operators/unionOperator.js";
+import * as intersectionOperator from "@arcgis/core/geometry/operators/intersectionOperator.js";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils.js";
 import Extent from "@arcgis/core/geometry/Extent";
 import type Polygon from "@arcgis/core/geometry/Polygon";
@@ -137,6 +138,48 @@ function pickNameField(featureSet: any): string | null {
     /יעוד|ייעוד|zone|landuse|name|שם|desc|תיאור|type|סוג/i.test(`${f.name} ${f.alias ?? ""}`),
   );
   return (preferred ?? fields[0])?.name ?? null;
+}
+
+export interface ZoneStyle {
+  color: string;
+  hatch: boolean;
+}
+
+const hex2 = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+const isDark = (c: number[]) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2] < 40;
+
+/** Colours ([r,g,b,a]) found in a symbol's JSON (esri or CIM), outlines skipped, in drawing order. */
+function collectColors(node: any, out: number[][], depth = 0): void {
+  if (!node || typeof node !== "object" || depth > 12) return;
+  if (Array.isArray(node)) {
+    node.forEach((n) => collectColors(n, out, depth + 1));
+    return;
+  }
+  for (const [k, v] of Object.entries(node)) {
+    if (/outline/i.test(k)) continue;
+    if (k === "color" && Array.isArray(v) && v.length >= 3 && v.every((x) => typeof x === "number")) {
+      if (v.length < 4 || (v[3] as number) > 0) out.push(v as number[]);
+    } else collectColors(v, out, depth + 1);
+  }
+}
+
+/** Fill colour and hatching of a symbol: hatch fills keep the colour of their lines. */
+function symbolStyle(symbol: any): ZoneStyle | null {
+  if (!symbol) return null;
+  let json: any = null;
+  try {
+    json = symbol.toJSON?.() ?? null;
+  } catch {
+    /* ignore */
+  }
+  const text = json ? JSON.stringify(json) : "";
+  const hatch = /CIMHatchFill/.test(text) || (symbol.type === "simple-fill" && !/^(solid|none)$/.test(String(symbol.style ?? "solid")));
+  const colors: number[][] = [];
+  const direct = symbol.color?.toRgba?.();
+  if (direct && direct[3] > 0) colors.push(direct);
+  if (json) collectColors(json, colors);
+  const pick = colors.find((c) => !isDark(c)) ?? colors[0];
+  return pick ? { color: `#${hex2(pick[0])}${hex2(pick[1])}${hex2(pick[2])}`, hatch } : null;
 }
 
 // ── Controller ───────────────────────────────────────────────────────────────
@@ -506,7 +549,12 @@ export class PolygonGroupQueryController {
    * Zoning features inside the area (attributes of every field) and the colour each zone type is
    * drawn with. Prefers what lies inside the polygon; falls back to the buffer ring.
    */
-  private async discoverZones(): Promise<{ features: ZoneAttrs[]; nameField: string; colors: Map<string, string> }> {
+  private async discoverZones(): Promise<{
+    features: ZoneAttrs[];
+    nameField: string;
+    colors: Map<string, ZoneStyle>;
+    geometries: Map<string, any[]>;
+  }> {
     const a = this.analysis!;
     const hits = (a.result.groups.find((g) => g.key === "zoning")?.layers ?? []).filter((l) => l.count > 0);
 
@@ -517,7 +565,8 @@ export class PolygonGroupQueryController {
         geometry,
         spatialRelationship: "intersects",
         outFields: ["*"],
-        returnGeometry: false,
+        returnGeometry: true,
+        outSpatialReference: this.view.spatialReference,
       });
       return { leaf, fs };
     };
@@ -533,7 +582,8 @@ export class PolygonGroupQueryController {
     const used = loaded.some(hasName) ? loaded.filter(hasName) : loaded;
 
     const features: ZoneAttrs[] = [];
-    const colors = new Map<string, string>();
+    const colors = new Map<string, ZoneStyle>();
+    const geometries = new Map<string, any[]>();
     let nameField = ZONE_NAME_FIELD;
     for (const { leaf, fs } of used) {
       const field = hasName({ fs }) ? ZONE_NAME_FIELD : pickNameField(fs);
@@ -543,26 +593,91 @@ export class PolygonGroupQueryController {
         const attrs = (f.attributes ?? {}) as ZoneAttrs;
         features.push(attrs);
         const name = String(attrs[field] ?? "").trim();
-        // The column header takes the colour the zone is drawn with on the map.
+        if (name && f.geometry) geometries.set(name, [...(geometries.get(name) ?? []), f.geometry]);
+        // The column takes the colour (and hatching) the zone is drawn with on the map.
         if (name && !colors.has(name)) {
-          const hex = await this.symbolHex(leaf, f);
-          if (hex) colors.set(name, hex);
+          const style = await this.zoneStyle(leaf, f);
+          if (style) colors.set(name, style);
         }
       }
     }
-    return { features, nameField, colors };
+    return { features, nameField, colors, geometries };
   }
 
-  /** Fill colour of a feature as the layer's renderer draws it (hex), or null when it cannot be resolved. */
-  private async symbolHex(layer: AnyLayer, feature: any): Promise<string | null> {
+  /** Fill colour (hex) and whether it is hatched, as the layer's renderer draws the feature; null when unresolvable. */
+  private async zoneStyle(layer: AnyLayer, feature: any): Promise<ZoneStyle | null> {
+    const renderer = layer?.renderer;
+    const candidates: any[] = [];
     try {
-      const symbol = await layer?.renderer?.getSymbolAsync?.(feature);
-      const color = symbol?.color ?? symbol?.symbolLayers?.getItemAt?.(0)?.material?.color;
-      const hex = color?.toHex?.();
-      return typeof hex === "string" && /^#[0-9a-f]{6}$/i.test(hex) ? hex : null;
+      candidates.push(await renderer?.getSymbolAsync?.(feature));
     } catch {
-      return null;
+      /* fall through to the legend lookup below */
     }
+    try {
+      // Unique-value renderers: match the feature's value against the legend entries.
+      const field = renderer?.field;
+      if (field && Array.isArray(renderer.uniqueValueInfos ?? null)) {
+        const value = String(feature?.attributes?.[field] ?? "");
+        candidates.push(renderer.uniqueValueInfos.find((u: any) => String(u.value) === value)?.symbol);
+      }
+      candidates.push(renderer?.symbol, renderer?.defaultSymbol);
+    } catch {
+      /* ignore */
+    }
+    for (const symbol of candidates) {
+      const style = symbolStyle(symbol);
+      if (style) return style;
+    }
+    return null;
+  }
+
+  /** The part of the drawn polygon that lies in a zone type: union of its features ∩ polygon (the whole zone if that fails). */
+  private zonePart(geoms: any[]): Polygon {
+    const a = this.analysis!;
+    if (geoms.length === 0) return a.polygon;
+    try {
+      const union = (geoms.length === 1 ? geoms[0] : unionOperator.executeMany(geoms)) as Polygon | null;
+      if (!union) return a.polygon;
+      const cut = intersectionOperator.execute(union, a.polygon) as Polygon | null;
+      return cut && !(cut as any).isEmpty?.call?.(cut) && (cut.rings?.length ?? 0) > 0 ? cut : union;
+    } catch {
+      return a.polygon;
+    }
+  }
+
+  /**
+   * Attribute VALUES (not layer or field names) of the alert layers selected by `pick`, e.g. the
+   * name of each alert polygon / line / point. Distinct, in layer order; "" when nothing is found,
+   * so empty cells stay empty in the table.
+   */
+  private async alertValues(pick: (l: LayerHit) => boolean, geometry: Polygon): Promise<string> {
+    const values: string[] = [];
+    for (const g of this.analysis!.result.groups) {
+      if (g.key === "zoning") continue;
+      for (const hit of g.layers) {
+        if (!pick(hit)) continue;
+        const leaf = this.leafByKey.get(hit.id);
+        if (!leaf) continue;
+        try {
+          const fs = await leaf.queryFeatures({
+            geometry,
+            spatialRelationship: "intersects",
+            outFields: ["*"],
+            returnGeometry: false,
+            num: 50,
+          });
+          const field = pickNameField(fs);
+          if (!field) continue;
+          for (const f of fs.features) {
+            const v = String(f.attributes?.[field] ?? "").replace(/\s+/g, " ").trim();
+            if (v && !/^[-—–]+$/.test(v) && !values.includes(v)) values.push(v);
+          }
+        } catch {
+          /* a layer that cannot be queried contributes no values */
+        }
+      }
+    }
+    return values.slice(0, 8).join("\n");
   }
 
   /** Planning area (e.g. 901): the most frequent 3-digit code in the string attributes of the planning-areas group. */
@@ -594,18 +709,9 @@ export class PolygonGroupQueryController {
     return [...codeCounts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
   }
 
-  private alertsText(pick: (l: LayerHit) => boolean): string {
-    const titles: string[] = [];
-    for (const g of this.analysis!.result.groups) {
-      if (g.key === "zoning") continue;
-      for (const l of g.layers) if (pick(l) && !titles.includes(l.title)) titles.push(l.title);
-    }
-    return titles.length ? titles.join(", ") : "-";
-  }
-
   private async buildTablePage(onProgress?: (message: string) => void) {
     const a = this.analysis!;
-    const { features, nameField, colors } = await this.discoverZones();
+    const { features, nameField, colors, geometries } = await this.discoverZones();
     const zoneColumns = buildZoneColumns(features, nameField);
     const shown = zoneColumns.slice(0, MAX_ZONE_COLUMNS);
 
@@ -625,26 +731,45 @@ export class PolygonGroupQueryController {
     const merged = shown.map((z, i) => mergeCells(z.cells, ragCells(plan[i]?.info)));
 
     const columns: TableColumn[] = shown.length
-      ? shown.map((z, i) => ({ title: z.zone, color: colors.get(z.zone) ?? ZONE_COLORS[i % ZONE_COLORS.length] }))
+      ? shown.map((z, i) => ({
+          title: z.zone,
+          color: colors.get(z.zone)?.color ?? ZONE_COLORS[i % ZONE_COLORS.length],
+          hatch: colors.get(z.zone)?.hatch ?? false,
+        }))
       : [{ title: "לא זוהה אזור ייעוד", color: "#cccccc" }];
-    const repeat = (text: string) => columns.map(() => text);
 
     // Rows are the attributes of the zoning layer; cells are their values for each zone type.
     const inPoly = (l: LayerHit) => l.countInPolygon > 0;
+    // Value priority: RAG → layer attributes → empty (never "-" or a field name).
+    const blank = (t: string | undefined) => (!t || /^[\s\-—–]*$/.test(t) ? "" : t);
+
+    // Alerts are cut by the zone: each column only gets the values of alert features inside that
+    // zone's part of the polygon (adjacent ones: within 100 m of that part).
+    onProgress?.("שולף ערכי התראות מהשכבות לכל אזור ייעוד");
+    await geodesicBufferOperator.load();
+    const perZone = await Promise.all(
+      (shown.length ? shown : [null]).map(async (z) => {
+        const part = z ? this.zonePart(geometries.get(z.zone) ?? []) : a.polygon;
+        const near = geodesicBufferOperator.execute(part, QUERY_BUFFER_METERS, { unit: "meters" } as any) as Polygon | null;
+        const [spatial, linear, pointy, adjacent] = await Promise.all([
+          this.alertValues((l) => inPoly(l) && l.geometryType === "polygon", part),
+          this.alertValues((l) => inPoly(l) && l.geometryType === "polyline", part),
+          this.alertValues((l) => inPoly(l) && l.geometryType === "point", part),
+          this.alertValues((l) => l.count > 0 && l.countInPolygon === 0, near ?? a.buffer),
+        ]);
+        return { spatial, linear, pointy, adjacent };
+      }),
+    );
     const rows: TableRow[] = [
       ...ZONE_ROWS.map((r) => ({
         label: r.label,
-        cells: shown.length ? merged.map((m) => m.cells[r.key] ?? "-") : ["-"],
+        cells: shown.length ? merged.map((m) => blank(m.cells[r.key])) : [""],
         link: r.link,
       })),
-      { label: "התראות מרחביות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "polygon")), link: "alert" },
-      { label: "התראות קוויות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "polyline")), link: "alert" },
-      { label: "התראות נקודתיות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "point")), link: "alert" },
-      {
-        label: "התראות מגורמים סמוכים",
-        cells: repeat(this.alertsText((l) => l.count > 0 && l.countInPolygon === 0)),
-        link: "alert",
-      },
+      { label: "התראות מרחביות", cells: perZone.map((z) => z.spatial), link: "alert" },
+      { label: "התראות קוויות", cells: perZone.map((z) => z.linear), link: "alert" },
+      { label: "התראות נקודתיות", cells: perZone.map((z) => z.pointy), link: "alert" },
+      { label: "התראות מגורמים סמוכים", cells: perZone.map((z) => z.adjacent), link: "alert" },
     ];
 
     const bottomNotes: string[] = ["תכניות בניין עיר ומסמכי מדיניות מאושרים ובתכנון: (1) _____ (2) _____"];

@@ -217,6 +217,8 @@ export async function composeCardsPage(cards: MapCard[]): Promise<PdfPageImage> 
 export interface TableColumn {
   title: string;
   color: string;
+  /** The zone is drawn hatched on the map: hatch the column background too. */
+  hatch?: boolean;
 }
 export interface TableRow {
   label: string;
@@ -354,8 +356,23 @@ export async function composeTablePage(input: {
     ctx.strokeRect(right - labelW, y, labelW, h);
     drawCentered(r.label, right - labelW / 2, y, h, labelW - pad * 2);
     r.cells.forEach((cell, ci) => {
-      ctx.fillStyle = hexToTint(input.columns[ci]?.color ?? "#cccccc", 0.14);
+      ctx.fillStyle = hexToTint(input.columns[ci]?.color ?? "#cccccc", input.columns[ci]?.hatch ? 0.15 : 0.3);
       ctx.fillRect(cellX(ci), y, colW, h);
+      if (input.columns[ci]?.hatch) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cellX(ci), y, colW, h);
+        ctx.clip();
+        ctx.strokeStyle = input.columns[ci].color;
+        ctx.lineWidth = 3;
+        for (let d = -h; d < colW; d += 14) {
+          ctx.beginPath();
+          ctx.moveTo(cellX(ci) + d, y + h);
+          ctx.lineTo(cellX(ci) + d + h, y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1.5;
       ctx.strokeRect(cellX(ci), y, colW, h);
