@@ -20,6 +20,7 @@ import {
   type TableColumn,
   type TableRow,
 } from "./groupPdf";
+import { ZONE_NAME_FIELD, ZONE_ROWS, buildZoneColumns, mergeCells, ragCells, type ZoneAttrs } from "./zoneTable";
 import { fetchZoneInfo, type ZonePlanResult } from "./planInfo";
 
 /** Buffer distance (meters) applied around the drawn polygon / plan boundary. */
@@ -48,6 +49,9 @@ const CARD_GROUP_KEYS = ["urban-design", "planning-areas", "transport", "infrast
 const FILL_FRACTION = 0.75;
 
 const ZONE_COLORS = ["#ffa500", "#ff5a00", "#b266ff", "#5cb85c"];
+
+/** Zone types shown as table columns (the most frequent in the area); more would not fit the page width. */
+const MAX_ZONE_COLUMNS = 6;
 
 export type AnalysisMode = "manual" | "boundary";
 
@@ -418,7 +422,7 @@ export class PolygonGroupQueryController {
    * One PDF, three kinds of page:
    *  1. the zoning group (אזורי ייעוד) as a full map, like sketch page 2;
    *  2. the other four groups as a row of map cards, like sketch page 3;
-   *  3. a summary table per zone, with the master-plan text from the RAG, like sketch page 5.
+   *  3. a table with one column per zone type, master-plan (RAG) text first and the zoning-layer attributes as fallback, like sketch page 5.
    * The layer visibility and view the user had are restored afterwards.
    */
   async exportInfoSheet(onProgress?: (message: string) => void): Promise<void> {
@@ -469,8 +473,7 @@ export class PolygonGroupQueryController {
       }
       const page2 = await composeCardsPage(cards);
 
-      onProgress?.("שולף נתוני תוכנית המתאר מה-RAG");
-      const page3 = await this.buildTablePage();
+      const page3 = await this.buildTablePage(onProgress);
 
       downloadBytes(jpegsToPdf([page1, page2, page3]), "דף מידע מתארי.pdf");
     } finally {
@@ -499,52 +502,96 @@ export class PolygonGroupQueryController {
     });
   }
 
-  /** Zone names inside the area (from the zoning group) and the planning-area code (e.g. 901). */
-  private async discoverZonesAndArea(): Promise<{ zones: string[]; areaCode?: string }> {
+  /**
+   * Zoning features inside the area (attributes of every field) and the colour each zone type is
+   * drawn with. Prefers what lies inside the polygon; falls back to the buffer ring.
+   */
+  private async discoverZones(): Promise<{ features: ZoneAttrs[]; nameField: string; colors: Map<string, string> }> {
     const a = this.analysis!;
-    const hitsOf = (key: string) =>
-      (a.result.groups.find((g) => g.key === key)?.layers ?? []).filter((l) => l.count > 0);
+    const hits = (a.result.groups.find((g) => g.key === "zoning")?.layers ?? []).filter((l) => l.count > 0);
 
-    const queryNames = async (hit: LayerHit, geometry: Polygon, allFields: boolean) => {
+    const queryAll = async (hit: LayerHit, geometry: Polygon) => {
       const leaf = this.leafByKey.get(hit.id);
-      if (!leaf) return { fs: null as any, field: null as string | null };
+      if (!leaf) return null;
       const fs = await leaf.queryFeatures({
         geometry,
         spatialRelationship: "intersects",
         outFields: ["*"],
         returnGeometry: false,
       });
-      return { fs, field: allFields ? null : pickNameField(fs) };
+      return { leaf, fs };
     };
 
-    // Zones: prefer what lies inside the polygon; fall back to the buffer ring.
-    const zoneCounts = new Map<string, number>();
-    for (const hit of hitsOf("zoning")) {
-      let { fs, field } = await queryNames(hit, a.polygon, false);
-      if (fs && fs.features.length === 0) ({ fs, field } = await queryNames(hit, a.buffer, false));
-      if (!fs || !field) continue;
-      for (const f of fs.features) {
-        const name = String(f.attributes?.[field] ?? "").trim();
-        if (name) zoneCounts.set(name, (zoneCounts.get(name) ?? 0) + 1);
-      }
+    const loaded: { leaf: AnyLayer; fs: any }[] = [];
+    for (const hit of hits) {
+      let r = await queryAll(hit, a.polygon);
+      if (r && r.fs.features.length === 0) r = await queryAll(hit, a.buffer);
+      if (r && r.fs.features.length > 0) loaded.push(r);
     }
-    const zones = [...zoneCounts.entries()].sort((x, y) => y[1] - x[1]).map(([n]) => n);
+    // The zoning layer proper has the zone-type field; other layers in the group would add empty columns.
+    const hasName = (r: { fs: any }) => (r.fs.fields ?? []).some((f: any) => f.name === ZONE_NAME_FIELD);
+    const used = loaded.some(hasName) ? loaded.filter(hasName) : loaded;
 
-    // Planning area: most frequent 3-digit code in the string attributes of the planning-areas group.
-    const codeCounts = new Map<string, number>();
-    for (const hit of hitsOf("planning-areas")) {
-      const { fs } = await queryNames(hit, a.polygon, true);
-      if (!fs) continue;
-      const stringFields = (fs.fields ?? []).filter((f: any) => f.type === "string").map((f: any) => f.name);
+    const features: ZoneAttrs[] = [];
+    const colors = new Map<string, string>();
+    let nameField = ZONE_NAME_FIELD;
+    for (const { leaf, fs } of used) {
+      const field = hasName({ fs }) ? ZONE_NAME_FIELD : pickNameField(fs);
+      if (!field) continue;
+      nameField = field;
       for (const f of fs.features) {
-        for (const name of stringFields) {
-          const m = /(?:^|\s)([1-9]\d{2})(?=\s|$|[א-ת'])/.exec(String(f.attributes?.[name] ?? ""));
-          if (m) codeCounts.set(m[1], (codeCounts.get(m[1]) ?? 0) + 1);
+        const attrs = (f.attributes ?? {}) as ZoneAttrs;
+        features.push(attrs);
+        const name = String(attrs[field] ?? "").trim();
+        // The column header takes the colour the zone is drawn with on the map.
+        if (name && !colors.has(name)) {
+          const hex = await this.symbolHex(leaf, f);
+          if (hex) colors.set(name, hex);
         }
       }
     }
-    const areaCode = [...codeCounts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
-    return { zones, areaCode };
+    return { features, nameField, colors };
+  }
+
+  /** Fill colour of a feature as the layer's renderer draws it (hex), or null when it cannot be resolved. */
+  private async symbolHex(layer: AnyLayer, feature: any): Promise<string | null> {
+    try {
+      const symbol = await layer?.renderer?.getSymbolAsync?.(feature);
+      const color = symbol?.color ?? symbol?.symbolLayers?.getItemAt?.(0)?.material?.color;
+      const hex = color?.toHex?.();
+      return typeof hex === "string" && /^#[0-9a-f]{6}$/i.test(hex) ? hex : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Planning area (e.g. 901): the most frequent 3-digit code in the string attributes of the planning-areas group. */
+  private async discoverAreaCode(): Promise<string | undefined> {
+    const a = this.analysis!;
+    const hits = (a.result.groups.find((g) => g.key === "planning-areas")?.layers ?? []).filter((l) => l.count > 0);
+    const codeCounts = new Map<string, number>();
+    for (const hit of hits) {
+      const leaf = this.leafByKey.get(hit.id);
+      if (!leaf) continue;
+      try {
+        const fs = await leaf.queryFeatures({
+          geometry: a.polygon,
+          spatialRelationship: "intersects",
+          outFields: ["*"],
+          returnGeometry: false,
+        });
+        const stringFields = (fs.fields ?? []).filter((f: any) => f.type === "string").map((f: any) => f.name);
+        for (const f of fs.features) {
+          for (const name of stringFields) {
+            const m = /(?:^|\s)([1-9]\d{2})(?=\s|$|[א-ת'])/.exec(String(f.attributes?.[name] ?? ""));
+            if (m) codeCounts.set(m[1], (codeCounts.get(m[1]) ?? 0) + 1);
+          }
+        }
+      } catch {
+        /* a layer that cannot be queried just contributes no code */
+      }
+    }
+    return [...codeCounts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
   }
 
   private alertsText(pick: (l: LayerHit) => boolean): string {
@@ -556,64 +603,62 @@ export class PolygonGroupQueryController {
     return titles.length ? titles.join(", ") : "-";
   }
 
-  private async buildTablePage() {
+  private async buildTablePage(onProgress?: (message: string) => void) {
     const a = this.analysis!;
-    const { zones, areaCode } = await this.discoverZonesAndArea();
-    const usedZones = zones.slice(0, 4);
+    const { features, nameField, colors } = await this.discoverZones();
+    const zoneColumns = buildZoneColumns(features, nameField);
+    const shown = zoneColumns.slice(0, MAX_ZONE_COLUMNS);
 
+    // The master-plan text (RAG) is stronger than the layer attributes: ask it for every zone and use the
+    // layer only for the rows it has no answer for.
+    onProgress?.("שולף נתוני תוכנית המתאר מה-RAG");
+    const areaCode = await this.discoverAreaCode();
     const errors: string[] = [];
-    const results: (ZonePlanResult | null)[] = await Promise.all(
-      usedZones.map((z) =>
-        fetchZoneInfo(z, areaCode).catch((err) => {
+    const plan: (ZonePlanResult | null)[] = await Promise.all(
+      shown.map((z) =>
+        fetchZoneInfo(z.zone, areaCode).catch((err) => {
           errors.push(err instanceof Error ? err.message : String(err));
           return null;
         }),
       ),
     );
+    const merged = shown.map((z, i) => mergeCells(z.cells, ragCells(plan[i]?.info)));
 
-    const columns: TableColumn[] = usedZones.length
-      ? usedZones.map((z, i) => ({ title: z, color: ZONE_COLORS[i % ZONE_COLORS.length] }))
+    const columns: TableColumn[] = shown.length
+      ? shown.map((z, i) => ({ title: z.zone, color: colors.get(z.zone) ?? ZONE_COLORS[i % ZONE_COLORS.length] }))
       : [{ title: "לא זוהה אזור ייעוד", color: "#cccccc" }];
-    const col = (pick: (z: ZonePlanResult) => string) =>
-      usedZones.length ? results.map((r) => (r ? pick(r) : "—")) : ["—"];
     const repeat = (text: string) => columns.map(() => text);
 
+    // Rows are the attributes of the zoning layer; cells are their values for each zone type.
     const inPoly = (l: LayerHit) => l.countInPolygon > 0;
     const rows: TableRow[] = [
-      { label: "מקבץ שימושים ראשי - לאזור הייעוד", cells: col((r) => r.info.primaryUse) },
-      { label: "מקבצי שימושים נוספים - לאזור הייעוד", cells: col((r) => r.info.extraUses) },
-      { label: 'רח"ק לפי אזור הייעוד', cells: col((r) => r.info.far) },
-      { label: "גובה מירבי", cells: col((r) => r.info.height) },
-      { label: "הוראות מיוחדות", cells: col((r) => r.info.directives) },
-      { label: "התראות מרחביות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "polygon")) },
-      { label: "התראות קוויות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "polyline")) },
-      { label: "התראות נקודתיות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "point")) },
+      ...ZONE_ROWS.map((r) => ({
+        label: r.label,
+        cells: shown.length ? merged.map((m) => m.cells[r.key] ?? "-") : ["-"],
+        link: r.link,
+      })),
+      { label: "התראות מרחביות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "polygon")), link: "alert" },
+      { label: "התראות קוויות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "polyline")), link: "alert" },
+      { label: "התראות נקודתיות", cells: repeat(this.alertsText((l) => inPoly(l) && l.geometryType === "point")), link: "alert" },
       {
         label: "התראות מגורמים סמוכים",
         cells: repeat(this.alertsText((l) => l.count > 0 && l.countInPolygon === 0)),
+        link: "alert",
       },
     ];
 
-    const bottomNotes: string[] = [];
-    const sources = results.filter((r): r is ZonePlanResult => !!r && !!r.info.source);
+    const bottomNotes: string[] = ["תכניות בניין עיר ומסמכי מדיניות מאושרים ובתכנון: (1) _____ (2) _____"];
+    if (shown.length === 0) bottomNotes.push("לא נמצאו ישויות בשכבות אזורי הייעוד בתחום שנבחר, או שלא זוהה שדה שם.");
+    if (zoneColumns.length > shown.length) bottomNotes.push(`מוצגים ${shown.length} אזורי הייעוד הנפוצים מתוך ${zoneColumns.length}.`);
+    const sources = plan.filter((r): r is ZonePlanResult => !!r && !!r.info.source);
     if (sources.length) {
-      bottomNotes.push(
-        "מקור: תוכנית המתאר תא/5500 — " + sources.map((r) => `${r.info.zone} (${r.info.source})`).join("; "),
-      );
+      bottomNotes.push("מקור: תוכנית המתאר תא/5500 — " + sources.map((r) => `${r.info.zone} (${r.info.source})`).join("; "));
     }
-    const areaNotes = results.find((r) => r && r.areaNotes.length)?.areaNotes ?? [];
-    if (areaCode) {
-      bottomNotes.push(
-        areaNotes.length
-          ? `הוראות מיוחדות לאזור תכנון ${areaCode} (טבלה 5.4): ${areaNotes.join(" | ")}`
-          : `אזור תכנון ${areaCode}`,
-      );
-    }
-    if (usedZones.length === 0) bottomNotes.push("לא נמצאו ישויות בשכבות אזורי הייעוד בתחום שנבחר, או שלא זוהה שדה שם.");
-    if (zones.length > usedZones.length) bottomNotes.push(`מוצגים ${usedZones.length} אזורי הייעוד הנפוצים מתוך ${zones.length}.`);
-    const notFound = results.filter((r) => r && !r.info.found).map((r) => r!.info.zone);
-    if (notFound.length) bottomNotes.push(`לא נמצאו בתוכנית הוראות עבור: ${notFound.join(", ")}`);
-    if (errors.length) bottomNotes.push(`שגיאה בגישה ל-RAG: ${[...new Set(errors)][0]}`);
+    const fromLayer = merged.flatMap((m, i) => m.fromLayer.map((k) => `${shown[i].zone}: ${ZONE_ROWS.find((r) => r.key === k)?.label.split(" - ")[0]}`));
+    if (fromLayer.length) bottomNotes.push(`ערכים שלא נמצאו בתוכנית המתאר נלקחו משכבת אזורי הייעוד (${fromLayer.join("; ")})`);
+    const areaNotes = plan.find((r) => r && r.areaNotes.length)?.areaNotes ?? [];
+    if (areaCode && areaNotes.length) bottomNotes.push(`הוראות מיוחדות לאזור תכנון ${areaCode} (טבלה 5.4): ${areaNotes.join(" | ")}`);
+    if (errors.length) bottomNotes.push(`שגיאה בגישה ל-RAG, הוצגו נתוני השכבה: ${[...new Set(errors)][0]}`);
     bottomNotes.push(`תוצר אוטומטי לפי ${a.mode === "boundary" ? "גבול התכנית" : "הפוליגון שנבחר"} + באפר ${QUERY_BUFFER_METERS} מ׳ | ${new Date().toLocaleDateString("he-IL")}`);
 
     return composeTablePage({
