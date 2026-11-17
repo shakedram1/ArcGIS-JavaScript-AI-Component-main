@@ -3,7 +3,8 @@ import type MapView from "@arcgis/core/views/MapView.js";
 import type Extent from "@arcgis/core/geometry/Extent.js";
 import type Polygon from "@arcgis/core/geometry/Polygon.js";
 import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
-import { getView, listTa5500Layers, rememberAuthoredEffects, telAvivExtent } from "../ta5500/mapFocus";
+import { captureBaseline, getView, listCatalog, listTa5500Layers, rememberAuthoredEffects, telAvivExtent } from "../ta5500/mapFocus";
+import { baselineStore } from "../ta5500/baseline";
 import { focusStore } from "../ta5500/focus";
 
 const EXTENT_EXPAND = 1.3;
@@ -41,6 +42,9 @@ export function useTa5500Mode(isMapReady: boolean, webMapId: string): boolean {
       if (!areas.length) return;
       // Before any agent touches the layers: keep the web map's own featureEffects for reset (mapFocus).
       rememberAuthoredEffects(view);
+      captureBaseline(view);
+      const catalog = listCatalog(view);
+      console.debug(`ta5500 catalog: ${catalog.length} layers in ${new Set(catalog.map((e) => e.group)).size} groups`);
       setIsTa5500(true);
 
       // fullExtent needs the layers loaded; projection may be needed if the
@@ -63,6 +67,7 @@ export function useTa5500Mode(isMapReady: boolean, webMapId: string): boolean {
     return () => {
       cancelled = true;
       focusStore.clear();
+      baselineStore.clear();
       const view = constrainedView;
       if (view && !view.destroyed) {
         view.constraints.geometry = previousGeometry;

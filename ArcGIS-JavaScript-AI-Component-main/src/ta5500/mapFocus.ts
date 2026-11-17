@@ -19,6 +19,8 @@ import { TA5500_LAYERS, findTa5500Layers, type LayerKey } from "./layers";
 import { ancestorsToShow, buildCodeWhere, focusLabel, focusStore, type FocusCase, type FocusState, type Place } from "./focus";
 import { isInsideExtent } from "./planLogic";
 import type { CatalogEntry } from "./catalog";
+import { baselineStore, visibilityChanges } from "./baseline";
+import Viewpoint from "@arcgis/core/Viewpoint.js";
 
 const WORLD_GEOCODER_URL = "https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer";
 const OUTLINE_LAYER_ID = "ta5500-focus-outline";
@@ -245,9 +247,29 @@ function restoreMap(view: MapView, prev: FocusState | null): void {
   if (outline) view.map?.remove(outline);
 }
 
+/**
+ * Record the map's startup state: every layer's visibility (group layers included) and the viewpoint (the web
+ * map's saved one, else the current one). Call when TA5500 mode starts, before any agent changes the map.
+ */
+export function captureBaseline(view: MapView): void {
+  const visibility: Record<string, boolean> = {};
+  for (const layer of view.map?.allLayers.toArray() ?? []) visibility[layer.uid] = layer.visible;
+  const saved = (view.map as { initialViewProperties?: { viewpoint?: Viewpoint | null } } | null)?.initialViewProperties?.viewpoint;
+  baselineStore.set({ visibility, viewpointJson: (saved ?? view.viewpoint)?.toJSON() ?? null });
+}
+
+/** Undo any focus, then return layer visibility and the view to the startup baseline (no baseline: just undo the focus). */
 export async function resetFocus(view: MapView): Promise<void> {
   callToken++;
   restoreMap(view, focusStore.clear());
+  const baseline = baselineStore.get();
+  if (!baseline) return;
+  const layers = view.map?.allLayers.toArray() ?? [];
+  for (const c of visibilityChanges(baseline.visibility, layers)) {
+    const layer = layers.find((l) => l.uid === c.uid);
+    if (layer) layer.visible = c.visible;
+  }
+  if (baseline.viewpointJson) await view.goTo(Viewpoint.fromJSON(baseline.viewpointJson as object)).catch(() => undefined);
 }
 
 export async function applyFocus(

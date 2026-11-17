@@ -95,7 +95,7 @@ test("no exported Hebrew string uses gendered first person", () => {
 });
 
 test("Map agent copy", () => {
-  assert.equal(FOCUS_CLEARED_REPLY, "המיקוד נוקה והמפה חזרה למצבה הקודם.");
+  assert.equal(FOCUS_CLEARED_REPLY, "המפה חזרה למצב ההתחלתי.");
   assert.equal(REQUEST_FAILED_REPLY, "לא ניתן היה לעבד את הבקשה כרגע. נסו שוב.");
   assert.equal(NO_TOPIC_REPLY, "לא נמצאו בתוכנית שכבה או נושא מתאימים לבקשה, ולכן המפה לא שונתה.");
   assert.equal(NO_TOPIC_NOTE, "לא נמצאה בתוכנית שכבה מתאימה לנושא שצוין.");

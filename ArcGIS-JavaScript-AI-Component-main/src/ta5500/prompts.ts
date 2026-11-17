@@ -132,7 +132,7 @@ export const OUTSIDE_TA_REPLY = "המקום שציינת נמצא מחוץ לת�
 
 export const MAP_FAILED_NOTE = "לא הצלחתי לעדכן את המפה.";
 
-export const FOCUS_CLEARED_REPLY = "המיקוד נוקה והמפה חזרה למצבה הקודם.";
+export const FOCUS_CLEARED_REPLY = "המפה חזרה למצב ההתחלתי.";
 
 export const REQUEST_FAILED_REPLY = "לא ניתן היה לעבד את הבקשה כרגע. נסו שוב.";
 
