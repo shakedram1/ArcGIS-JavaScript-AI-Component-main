@@ -207,17 +207,25 @@ function isWholePlanOrCity(t: string): boolean {
 
 const nameKey = (s: string) => s.replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim();
 
+/** The name, or one of its comma-separated parts, is exactly `t` ("צהלה" is a part of "צהלה" but not of "גני צהלה, רמות צהלה"). */
+const isWholeName = (name: string, t: string) => nameKey(name).split(",").some((part) => part.trim() === t) || nameKey(name) === t;
+
 /**
- * Planning areas whose name contains `text` as whole words (quotes ignored), in plan order; when no area matches,
- * the sub-areas that do. Labels come from the plan data.
+ * Planning areas named by `text`: the areas whose whole name (or a comma-separated part of it) is the text, else the
+ * areas whose name contains it as whole words when it has two or more words (quotes ignored), in plan order. When no area matches, the sub-areas
+ * whose whole name is the text. A sub-area whose name merely contains the text ("רוקח אבן גבירול" for "אבן גבירול")
+ * is not a match: the text is a street or landmark for the geocoder. Labels come from the plan data.
  */
 export function placesByName(text: string | null | undefined, loc: PlanLocations): Place[] {
   const t = nameKey(text ?? "");
   if (!t) return [];
-  const hit = (name: string) => hasWord(nameKey(name), t);
-  const areas = loc.areas.filter((a) => hit(a.name));
-  if (areas.length) return areas.map((a) => ({ kind: "area" as const, codes: [a.code], label: areaLabel([a.code], loc) }));
-  return loc.subareas.filter((a) => hit(a.name)).map((a) => ({ kind: "subarea" as const, codes: [a.code], label: areaLabel([a.code], loc) }));
+  const toPlace = (kind: "area" | "subarea") => (a: { code: string }): Place => ({ kind, codes: [a.code], label: areaLabel([a.code], loc) });
+  // Containment needs two or more words: a single word ("המע"ר", "יפו") is too generic to pick an area by.
+  const containing = t.includes(" ") ? loc.areas.filter((a) => hasWord(nameKey(a.name), t)) : [];
+  const exact = loc.areas.filter((a) => isWholeName(a.name, t));
+  const areas = exact.length ? exact : containing;
+  if (areas.length) return areas.map(toPlace("area"));
+  return loc.subareas.filter((a) => isWholeName(a.name, t)).map(toPlace("subarea"));
 }
 
 export function placeTextStep(text: string | null | undefined, loc: PlanLocations): PlaceTextStep {

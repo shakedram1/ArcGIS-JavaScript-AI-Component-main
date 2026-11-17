@@ -279,6 +279,24 @@ test("planCatalogUids: only layers that resolved to one drawing", () => {
   assert.deepEqual(planCatalogUids({ layers: [], ambiguous: [] }), []);
 });
 
+test("placesByName: an area whose whole name (or a comma-separated part) is the text beats names that only contain it", () => {
+  assert.deepEqual(placesByName("צהלה", loc).map((p) => p.codes[0]), ["207"]);
+  assert.deepEqual(placesByName("אפקה", loc).map((p) => p.codes[0]), ["105"]);
+  assert.deepEqual(placesByName("פלורנטין", loc).map((p) => p.codes[0]), ["801"]);
+  assert.deepEqual(placesByName("נווה שרת", loc).map((p) => p.codes[0]), ["208"]);
+  assert.deepEqual(placesByName("רמת אביב", loc).map((p) => p.codes[0]), ["102", "103", "104", "106"]); // no exact name: still several
+});
+
+test("placesByName: sub-areas only by their whole name; a street or landmark inside a longer name is geocoded", () => {
+  for (const t of ["אבן גבירול", 'המע"ר', "שרונה"]) assert.deepEqual(placeTextStep(t, loc), { kind: "geocode" }, t);
+  assert.equal((placeTextStep("רובע שדה דב", loc) as { place: Place }).place.codes[0], "101ו");
+});
+
+test("placesByName: a single generic word is not matched by containment (geocoded as before)", () => {
+  for (const t of ["יפו", "גלילות", "החשמל"]) assert.deepEqual(placesByName(t, loc).filter((p) => p.kind === "area" && p.codes.length > 1), [], t);
+  assert.deepEqual(placeTextStep("יפו", loc), { kind: "geocode" });
+});
+
 test("unplannedAreaCode: dropped area-shaped values that are not plan areas", () => {
   assert.equal(unplannedAreaCode(["999"], loc), "999");
   assert.equal(unplannedAreaCode(validateRequest({ areas: ["999"] }, loc).dropped, loc), "999");

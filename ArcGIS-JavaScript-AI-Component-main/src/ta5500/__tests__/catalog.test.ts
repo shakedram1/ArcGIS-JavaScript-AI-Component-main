@@ -54,3 +54,14 @@ test("matchCatalog: 'אזור תכנון 105' is a place phrase, not the layer '
 test("matchCatalog: a layer that exists in one group resolves even when another group is named", () => {
   assert.deepEqual(titles(matchCatalog("מדרגות גובה בינוי בתחבורה", INVENTORY)), ["מדרגות גובה בינוי|עיצוב עירוני"]);
 });
+
+test("matchCatalog: every drawing the question offers can be chosen (even 'אזורי ומרחבי תכנון', which contains a layer title)", () => {
+  for (const g of ["אזורי ייעוד", "עיצוב עירוני", "אזורי ומרחבי תכנון", "סביבה ותשתיות", "תחבורה וניידות"]) {
+    const m = matchCatalog(`גבול התכנית ${g}`, INVENTORY);
+    assert.deepEqual(titles(m), [`גבול התכנית|${g}`], g);
+    assert.deepEqual(m.ambiguous, [], g);
+  }
+  assert.deepEqual(titles(matchCatalog("גבול התכנית אזורי תכנון", INVENTORY)), ["גבול התכנית|אזורי ומרחבי תכנון"]);
+  // The layer "מרחבי תכנון" alone is still that layer.
+  assert.deepEqual(titles(matchCatalog("הצג מרחבי תכנון", INVENTORY)), ["מרחבי תכנון|אזורי ומרחבי תכנון"]);
+});

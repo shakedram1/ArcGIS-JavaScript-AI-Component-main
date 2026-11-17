@@ -286,3 +286,23 @@
   after: "מה מותר לבנות ברמת אביב?"
   note: answers for area 102 and focuses on it
   result: pending
+- q: "מה מותר לבנות בצהלה?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: resolves to area 207 (whole name) without asking, although 206 also contains "צהלה"
+  result: pending
+- q: "מה מותר לבנות בפלורנטין?"
+  kind: plan+place
+  expect: ta5500-plan
+  note: resolves to area 801 without asking (702 is "מערב פלורנטין")
+  result: pending
+- q: "קח אותי ליפו"
+  kind: map
+  expect: ta5500-map
+  note: one generic word is geocoded, not asked about; goes to Jaffa
+  result: pending
+- q: "קח אותי לאבן גבירול"
+  kind: map
+  expect: ta5500-map
+  note: a street is geocoded, not matched to sub-area 101ח "רוקח אבן גבירול"
+  result: pending

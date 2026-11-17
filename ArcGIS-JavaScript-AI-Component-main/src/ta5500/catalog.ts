@@ -30,6 +30,7 @@ const GROUP_ALIASES: Record<string, string[]> = {
   "עיצוב עירוני": ["עיצוב"],
   "סביבה ותשתיות": ["סביבה", "תשתיות"],
   "תחבורה וניידות": ["תחבורה", "ניידות"],
+  "אזורי ומרחבי תכנון": ["אזורי תכנון", "אזורי ומרחבי"],
 };
 
 // Leading words of a title that are also an everyday place phrase ("באזור תכנון 105"): never matched alone.
@@ -60,16 +61,22 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
     const matched = hasWord(n, full) ? full : lead && hasWord(n, lead) ? lead : null;
     if (matched) hits.push({ title, matched });
   }
-  const kept = hits.filter((h) => !hits.some((o) => o !== h && o.matched.length > h.matched.length && o.matched.includes(h.matched)));
+  // A drawing's full name can contain a layer title ("אזורי ומרחבי תכנון" contains "מרחבי תכנון"): when the whole
+  // name is in the text, that part of the text names the drawing, not the layer.
+  const groups = [...new Set(entries.map((e) => groupLabel(e.group)))];
+  const fullGroups = groups.filter((g) => hasWord(n, normalizePlanText(g)));
+  const inGroupName = (h: { matched: string }) => fullGroups.some((g) => normalizePlanText(g).includes(h.matched));
+  const kept = hits
+    .filter((h) => !inGroupName(h))
+    .filter((h) => !hits.some((o) => o !== h && o.matched.length > h.matched.length && o.matched.includes(h.matched)));
   if (!kept.length) return out;
 
   let rest = n;
   for (const h of kept) rest = rest.split(h.matched).join(" ");
-  const named = new Set(
-    [...new Set(entries.map((e) => groupLabel(e.group)))].filter((g) =>
-      [normalizePlanText(g), ...(GROUP_ALIASES[g] ?? [])].some((w) => hasWord(rest, w)),
-    ),
-  );
+  const named = new Set([
+    ...fullGroups,
+    ...groups.filter((g) => (GROUP_ALIASES[g] ?? []).some((w) => hasWord(rest, w))),
+  ]);
 
   for (const h of kept) {
     const all = entries.filter((e) => e.title === h.title);
