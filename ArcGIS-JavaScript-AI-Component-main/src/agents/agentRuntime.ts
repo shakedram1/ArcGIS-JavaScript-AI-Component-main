@@ -1,3 +1,10 @@
+/**
+ * Helpers for the ArcGIS AI components 5.1 agent contract, shared by the custom
+ * agents: the graph state channels an agent node reads and writes
+ * (`agentRuntimeChannels`), reading the routed request (`readAgentRequest`),
+ * seeding the message history (`seedAgentMessages`) and building the node's
+ * result (`agentResult`). Pure, so it is covered by `npm test`.
+ */
 import { Annotation } from "@langchain/langgraph/web";
 import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
 
