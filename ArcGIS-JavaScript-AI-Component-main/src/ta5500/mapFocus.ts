@@ -16,8 +16,9 @@ import * as unionOperator from "@arcgis/core/geometry/operators/unionOperator.js
 import * as projectOperator from "@arcgis/core/geometry/operators/projectOperator.js";
 import * as locator from "@arcgis/core/rest/locator.js";
 import { TA5500_LAYERS, findTa5500Layers, type LayerKey } from "./layers";
-import { buildCodeWhere, focusLabel, focusStore, type FocusCase, type FocusState, type Place } from "./focus";
+import { ancestorsToShow, buildCodeWhere, focusLabel, focusStore, type FocusCase, type FocusState, type Place } from "./focus";
 import { isInsideExtent } from "./planLogic";
+import type { CatalogEntry } from "./catalog";
 
 const WORLD_GEOCODER_URL = "https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer";
 const OUTLINE_LAYER_ID = "ta5500-focus-outline";
@@ -58,6 +59,28 @@ export function listTa5500Layers(view: MapView): Map<LayerKey, FeatureLayer[]> {
     out.set(key, likes.map((like) => layers.find((l) => l.uid === like.uid)!).filter(Boolean));
   }
   return out;
+}
+
+type Parented = { uid: string; title?: string | null; visible: boolean; parent?: unknown };
+const asParented = (x: unknown): Parented | null => (x && typeof x === "object" && "uid" in x && "visible" in x ? (x as Parented) : null);
+
+/** The plan map's layers as (group, title): the feature layers inside a group layer whose title names the plan ("… 5500"). */
+export function listCatalog(view: MapView): CatalogEntry[] {
+  const out: CatalogEntry[] = [];
+  for (const layer of featureLayers(view)) {
+    const parent = asParented(layer.parent);
+    const group = parent?.title ?? "";
+    if (parent && group.includes("5500") && layer.title) out.push({ uid: layer.uid, title: layer.title, group });
+  }
+  return out;
+}
+
+/** The hidden group layers above a layer (a layer in a hidden group is not drawn, whatever its own visibility). */
+function hiddenAncestors(view: MapView, layer: Layer): Parented[] {
+  const chain: Parented[] = [];
+  for (let p = asParented((layer as unknown as Parented).parent); p && (p as unknown) !== view.map; p = asParented(p.parent)) chain.push(p);
+  const hidden = new Set(ancestorsToShow(chain));
+  return chain.filter((c) => hidden.has(c.uid));
 }
 
 export function codeFieldOf(layer: FeatureLayer): { name: string; type: "string" | "number" } | null {
@@ -213,6 +236,11 @@ function restoreMap(view: MapView, prev: FocusState | null): void {
     if (lv && "filter" in lv) lv.filter = null;
     layer.featureEffect = originalEffects.get(layer.uid)?.clone() ?? null;
   }
+  for (const w of prev?.wholeLayers ?? []) {
+    const layer = all?.find((l) => l.uid === w.uid);
+    const lv = layer ? (view.allLayerViews.find((v) => v.layer === layer) as { filter?: FeatureFilter | null } | undefined) : undefined;
+    if (lv && "filter" in lv) lv.filter = null;
+  }
   const outline = view.map?.findLayerById(OUTLINE_LAYER_ID);
   if (outline) view.map?.remove(outline);
 }
@@ -224,11 +252,11 @@ export async function resetFocus(view: MapView): Promise<void> {
 
 export async function applyFocus(
   view: MapView,
-  plan: { case: FocusCase; layers: Map<LayerKey, string[]> },
+  plan: { case: FocusCase; layers: Map<LayerKey, string[]>; wholeLayerUids?: string[] },
   place: Place | null,
   geometry: Geometry | null,
 ): Promise<FocusState> {
-  const empty: FocusState = { place: null, geometryJson: null, layers: [], previousVisibility: {}, label: focusLabel(null, []) };
+  const empty: FocusState = { place: null, geometryJson: null, layers: [], wholeLayers: [], previousVisibility: {}, label: focusLabel(null, []) };
   if (plan.case === "none") return focusStore.get() ?? empty; // spec §5.3 4.4: map unchanged
   const token = ++callToken;
   const usePlace = plan.case !== "topic_only";
@@ -248,8 +276,19 @@ export async function applyFocus(
       targets.push({ key, layer, where, lv });
     }
   }
+  // Whole catalog layers: every feature, clipped to the place when there is one.
+  const wholeTargets: { layer: FeatureLayer; lv: { filter?: FeatureFilter | null } }[] = [];
+  for (const uid of plan.wholeLayerUids ?? []) {
+    const layer = featureLayers(view).find((l) => l.uid === uid);
+    if (!layer) continue;
+    wholeTargets.push({ layer, lv: (await view.whenLayerView(layer)) as unknown as { filter?: FeatureFilter | null } });
+  }
   let goToTarget: Extent | null = geom?.extent?.clone().expand(1.2) ?? null;
   if (plan.case === "topic_only") {
+    for (const w of wholeTargets) {
+      const res = await w.layer.queryExtent({ where: "1=1", outSpatialReference: view.spatialReference }).catch(() => null);
+      if (res?.extent && res.count > 0) goToTarget = goToTarget ? goToTarget.union(res.extent) : res.extent.clone();
+    }
     for (const [key] of plan.layers) {
       const first = targets.find((t) => t.key === key);
       if (!first) continue;
@@ -265,13 +304,25 @@ export async function applyFocus(
   // Synchronous apply: clear the previous focus, then set the new one.
   restoreMap(view, focusStore.get());
   const previousVisibility: Record<string, boolean> = {};
-  const keptUids = new Set(targets.map((t) => t.layer.uid));
+  const keptUids = new Set([...targets.map((t) => t.layer.uid), ...wholeTargets.map((w) => w.layer.uid)]);
   for (const layer of featureLayers(view)) {
     const want = keptUids.has(layer.uid);
     if (layer.visible !== want && (want || layer.visible)) {
       previousVisibility[layer.uid] = layer.visible;
       layer.visible = want;
     }
+  }
+  // A layer in a hidden group is not drawn: show the hidden groups above every shown layer (reset restores them).
+  for (const uid of keptUids) {
+    const layer = featureLayers(view).find((l) => l.uid === uid);
+    if (!layer) continue;
+    for (const g of hiddenAncestors(view, layer)) {
+      if (!(g.uid in previousVisibility)) previousVisibility[g.uid] = false;
+      g.visible = true;
+    }
+  }
+  if (usePlace && geom) {
+    for (const w of wholeTargets) w.lv.filter = new FeatureFilter({ geometry: geom, spatialRelationship: "intersects" });
   }
   for (const t of targets) {
     if (usePlace) {
@@ -293,8 +344,9 @@ export async function applyFocus(
     place,
     geometryJson: geom ? geom.toJSON() : null,
     layers,
+    wholeLayers: wholeTargets.map((w) => ({ uid: w.layer.uid, title: w.layer.title ?? "" })),
     previousVisibility,
-    label: focusLabel(place, layers.map((l) => TA5500_LAYERS[l.layerKey].label)),
+    label: focusLabel(place, [...layers.map((l) => TA5500_LAYERS[l.layerKey].label), ...wholeTargets.map((w) => w.layer.title ?? "")]),
   };
   focusStore.set(state);
   if (goToTarget) await view.goTo(goToTarget).catch(() => undefined);
@@ -326,7 +378,7 @@ export function hideLayers(view: MapView, keys: LayerKey[]): { hidden: LayerKey[
   if (!hidden.length) return { hidden, state: prev };
   const state: FocusState = prev
     ? { ...prev, previousVisibility }
-    : { place: null, geometryJson: null, layers: [], previousVisibility, label: `הוסתרו: ${hidden.map((k) => TA5500_LAYERS[k].label).join(", ")}` };
+    : { place: null, geometryJson: null, layers: [], wholeLayers: [], previousVisibility, label: `הוסתרו: ${hidden.map((k) => TA5500_LAYERS[k].label).join(", ")}` };
   focusStore.set(state);
   return { hidden, state };
 }

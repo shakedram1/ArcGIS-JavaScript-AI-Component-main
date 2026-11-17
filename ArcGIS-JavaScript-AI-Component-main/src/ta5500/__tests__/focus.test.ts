@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCodeWhere, focusLabel, focusStore, planFocus } from "../focus";
+import { ancestorsToShow, buildCodeWhere, focusLabel, focusStore, planFocus } from "../focus";
 import type { FocusState, Place } from "../focus";
 import type { LayerKey } from "../layers";
 
@@ -21,6 +21,18 @@ test("planFocus cases", () => {
   assert.equal(n.layers.size, 0);
 });
 
+test("planFocus: whole layers count as a topic", () => {
+  assert.deepEqual(planFocus(null, new Map(), ["u1"]), { case: "topic_only", layers: new Map(), wholeLayerUids: ["u1"] });
+  assert.equal(planFocus(area, new Map(), ["u1"]).case, "place_topic");
+  assert.deepEqual(planFocus(null, new Map()).wholeLayerUids, []);
+  assert.equal(planFocus(area, new Map()).case, "place_only");
+});
+
+test("ancestorsToShow: only the hidden ones", () => {
+  assert.deepEqual(ancestorsToShow([{ uid: "g", visible: false }, { uid: "root", visible: true }]), ["g"]);
+  assert.deepEqual(ancestorsToShow([]), []);
+});
+
 test("buildCodeWhere", () => {
   assert.equal(buildCodeWhere("EzorYeudCode", "string", ["332", "3'3"]), "EzorYeudCode IN ('332','3''3')");
   assert.equal(buildCodeWhere("TypeCode", "number", ["335", "x"]), "TypeCode IN (335)");
@@ -32,7 +44,7 @@ test("buildCodeWhere", () => {
 
 test("focusStore", () => {
   const st: FocusState = {
-    place: area, geometryJson: null, layers: [{ layerKey: "zones", where: "1=1" }],
+    place: area, geometryJson: null, layers: [{ layerKey: "zones", where: "1=1" }], wholeLayers: [],
     previousVisibility: { u1: true, u2: false }, label: "x",
   };
   const seen: (FocusState | null)[] = [];

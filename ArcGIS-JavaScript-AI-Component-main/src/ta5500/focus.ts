@@ -4,15 +4,26 @@ import type { LayerKey } from "./layers";
 export type Place = { kind: "area" | "subarea" | "street" | "geocoded"; codes: string[]; label: string };
 export type FocusCase = "place_topic" | "place_only" | "topic_only" | "none";
 
+/**
+ * What a focus shows: plan layers by key and feature codes (candidates), plus whole catalog layers by uid.
+ * Either one is a topic; with neither, a place alone shows the zone layer.
+ */
 export function planFocus(
   place: Place | null,
   candidates: Map<LayerKey, string[]>,
-): { case: FocusCase; layers: Map<LayerKey, string[]> } {
+  wholeLayerUids: string[] = [],
+): { case: FocusCase; layers: Map<LayerKey, string[]>; wholeLayerUids: string[] } {
   const copy = new Map<LayerKey, string[]>();
   for (const [k, v] of candidates) copy.set(k, [...v]);
-  if (copy.size > 0) return { case: place ? "place_topic" : "topic_only", layers: copy };
-  if (place) return { case: "place_only", layers: new Map<LayerKey, string[]>([["zones", []]]) };
-  return { case: "none", layers: new Map() };
+  const whole = [...wholeLayerUids];
+  if (copy.size > 0 || whole.length > 0) return { case: place ? "place_topic" : "topic_only", layers: copy, wholeLayerUids: whole };
+  if (place) return { case: "place_only", layers: new Map<LayerKey, string[]>([["zones", []]]), wholeLayerUids: [] };
+  return { case: "none", layers: new Map(), wholeLayerUids: [] };
+}
+
+/** The uids of the hidden layers in a parent chain (group layers above a layer): they must be shown for it to appear. */
+export function ancestorsToShow(chain: { uid: string; visible: boolean }[]): string[] {
+  return chain.filter((l) => !l.visible).map((l) => l.uid);
 }
 
 export function buildCodeWhere(field: string, fieldType: "string" | "number", codes: string[]): string {
@@ -29,6 +40,8 @@ export type FocusState = {
   place: Place | null;
   geometryJson: unknown | null;
   layers: { layerKey: LayerKey; where: string }[];
+  /** Catalog layers shown whole (by uid), next to `layers`. */
+  wholeLayers: { uid: string; title: string }[];
   previousVisibility: Record<string, boolean>;
   label: string;
 };
