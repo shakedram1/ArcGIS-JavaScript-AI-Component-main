@@ -16,6 +16,7 @@ import {
   planPlaceNote,
   placeTextStep,
   placesByName,
+  planCatalogUids,
   REQUEST_FAILED_SUMMARY,
   unplannedAreaCode,
   useStoredPlace,
@@ -270,6 +271,12 @@ test("mapStep: ambiguous layers are asked for show/filter; whole layers focus", 
   assert.equal(mapStep("reset", { ...base, ambiguousLayers: true }), "reset");
   assert.equal(mapStep("show", { ...base, wholeLayers: 1 }), "focus");
   assert.equal(mapStep("show", base), "no_topic");
+});
+
+test("planCatalogUids: only layers that resolved to one drawing", () => {
+  const e = { uid: "1-5", title: "צירי תכנון וקווי תיחום", group: "אזורי ייעוד 5500" };
+  assert.deepEqual(planCatalogUids({ layers: [e], ambiguous: [{ title: "גבול התכנית", groups: ["a", "b"] }] }), ["1-5"]);
+  assert.deepEqual(planCatalogUids({ layers: [], ambiguous: [] }), []);
 });
 
 test("unplannedAreaCode: dropped area-shaped values that are not plan areas", () => {

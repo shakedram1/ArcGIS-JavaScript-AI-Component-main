@@ -11,6 +11,7 @@ import { getPlanLocations, searchPlan } from "../ta5500/ragClient";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "../ta5500/types";
 import { matchTopicOverrides, TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
 import { validateRequest } from "../ta5500/planLogic";
+import { matchCatalog } from "../ta5500/catalog";
 import { planFocus, focusStore, type Place } from "../ta5500/focus";
 import {
   getView,
@@ -19,6 +20,7 @@ import {
   keepLayersWithFeatures,
   applyFocus,
   resetFocus,
+  listCatalog,
   FocusSupersededError,
 } from "../ta5500/mapFocus";
 import {
@@ -44,6 +46,7 @@ import {
   placeFromFilters,
   placeSearchFilters,
   placeTextStep,
+  planCatalogUids,
   planPlaceNote,
   unplannedAreaCode,
   useStoredPlace,
@@ -97,6 +100,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
       question: last<string>(() => ""),
       filters: last<PlanFilters>(() => ({})),
       overrideZoneTypes: last<string[]>(() => []),
+      wholeLayerUids: last<string[]>(() => []),
       place: last<Place | null>(() => null),
       placeGeometry: last<Geometry | null>(() => null),
       placeText: last<string>(() => ""),
@@ -201,6 +205,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           locations,
           filters: mergeFilters(validated, extraFilters, overrides),
           overrideZoneTypes: overrides.zone_types ?? [],
+          wholeLayerUids: view ? planCatalogUids(matchCatalog(request, listCatalog(view))) : [],
           place,
           placeGeometry,
           placeText,
@@ -241,10 +246,11 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
       const notes: string[] = [];
       let line = "";
       let shown: LayerKey[] = [];
+      let wholeTitles: string[] = [];
       let patch: { label: string; layers: LayerKey[] } | null = null;
       try {
         const candidates = candidateLayers(result!, s.usedItems, s.overrideZoneTypes, locations!);
-        const preview = planFocus(place, candidates);
+        const preview = planFocus(place, candidates, s.wholeLayerUids);
         if (preview.case !== "none") {
           const view = getView();
           if (!view) throw new Error("map view unavailable");
@@ -253,15 +259,16 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           const { kept, skipped } = candidates.size
             ? await keepLayersWithFeatures(view, candidates, placeGeometry)
             : { kept: candidates, skipped: [] as LayerKey[] };
-          const plan = planFocus(place, kept);
+          const plan = planFocus(place, kept, s.wholeLayerUids);
           if (plan.case !== "none") {
             const applied = await applyFocus(view, plan, place, placeGeometry);
             shown = applied.layers.map((l) => l.layerKey);
+            wholeTitles = applied.wholeLayers.map((w) => w.title);
             patch = { label: applied.label, layers: shown };
           }
           line = shownLine(
             place?.label ?? null,
-            shown.map((k) => TA5500_LAYERS[k].label),
+            [...shown.map((k) => TA5500_LAYERS[k].label), ...wholeTitles],
             skipped.map((k) => TA5500_LAYERS[k].label),
           );
         }

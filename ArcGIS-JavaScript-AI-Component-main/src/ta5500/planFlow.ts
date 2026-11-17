@@ -5,6 +5,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 import { hasWord, matchLayerTopics, matchTopicOverrides, type LayerKey } from "./layers";
 import { citedSections, layersForSections, validateRequest } from "./planLogic";
 import type { Place } from "./focus";
+import type { CatalogMatch } from "./catalog";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "./types";
 import { PlanServiceError } from "./ragClient";
 import {
@@ -164,6 +165,11 @@ export function failureReply(err: unknown, tag: string): { output: string; ok: b
 /** Orchestrator summary for a map update that failed (status "success": the user was told, no agent should retry). */
 export function mapFailedSummary(what: string): string {
   return `${what}: map update failed; the user was told; do not retry`;
+}
+
+/** Plan agent: only catalog layers that resolved to one drawing are used; an ambiguous title is not asked about. */
+export function planCatalogUids(match: CatalogMatch): string[] {
+  return match.layers.map((e) => e.uid);
 }
 
 // ---------- Place resolution (both agents) ----------
