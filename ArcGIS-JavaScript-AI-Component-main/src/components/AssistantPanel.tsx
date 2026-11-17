@@ -5,12 +5,30 @@ import { focusStore } from "../ta5500/focus";
 
 // ── Hebrew assistant copy ────────────────────────────────────────────────────
 
-export const ASSISTANT_DESCRIPTION = "תחקור שכבות המפה ומקורות מידע חיצוניים בשפה יומיומית";
+// nb_changed 2026-11-16: new description text for the TA5500 planning assistant. This constant is also imported by AppHeader.tsx and
+// shown there as the main title of the top bar, so the new text appears in both places. The previous text is kept below, commented out.
+// export const ASSISTANT_DESCRIPTION = "תחקור שכבות המפה ומקורות מידע חיצוניים בשפה יומיומית";
+export const ASSISTANT_DESCRIPTION = "תחקור שכבות ומסמך תוכנית המתאר תא/5500";
 // ArcGIS's own docs say `heading` "should be concise" — it's a short label slot,
 // not a sentence, and long values get visually truncated by the component itself.
-const ASSISTANT_HEADING = "עוזר אישי לרשותך לתחקור המפה וסיכום עיקרי החדשות";
+// nb_changed 2026-11-16: new heading shown at the top of the chat (set on the assistant element by applyAssistantCopy below).
+// The previous text is kept, commented out. Note: the component says the heading should be concise, so a long one may be clipped.
+// const ASSISTANT_HEADING = "עוזר אישי לרשותך לתחקור המפה וסיכום עיקרי החדשות";
+// nb_changed 2026-11-17: the heading (next to the refresh button) is now a short label "התחל שיחה חדשה"; the long text moved to the
+// strip above the chat (see ds-eyebrow below). The previous text is kept, commented out.
+// const ASSISTANT_HEADING = "עוזר אישי לרשותך לתחקור שכבות ומסמך תוכנית המתאר תא/5500";
+const ASSISTANT_HEADING = "התחל שיחה חדשה";
+// nb_changed 2026-11-16: new welcome message (two paragraphs separated by \n\n) introducing the TA5500 assistant.
+// The previous text is kept below, commented out.
+// const ASSISTANT_ENTRY_MESSAGE =
+//   "שלום! אני יכול לעזור לך לסייר ולנתח את נתוני המפה.\n\nנסה לשאול על שכבות, סטטיסטיקות, או לנווט לכל מיקום.";
 const ASSISTANT_ENTRY_MESSAGE =
-  "שלום! אני יכול לעזור לך לסייר ולנתח את נתוני המפה.\n\nנסה לשאול על שכבות, סטטיסטיקות, או לנווט לכל מיקום.";
+  "שלום! אני העוזר החכם לתוכנית המתאר תא/5500. אני משלב בין תשריטי התוכנית, המוצגים במפה, ובין הוראות התוכנית, אותן ניתן לתשאל דרכי.";
+// The first chat message: a real assistant message at the top of the conversation (not the built-in entry notice, which is a
+// closable info pop-up that disappears after the first question).
+const ASSISTANT_FIRST_MESSAGE =
+  "שלום! אני העוזר החכם לתוכנית המתאר תא/5500. אני משלב בין תשריטי התוכנית, המוצגים במפה, ובין הוראות התוכנית, אותן ניתן לתשאל דרכי.";
+const ASSISTANT_FIRST_MESSAGE_ID = "ta5500-welcome";
 const ASSISTANT_SUGGESTED_PROMPTS = [
   "אילו שכבות יש במפה?",
   "כמה ישויות יש בשכבה הראשונה?",
@@ -23,7 +41,13 @@ interface AssistantElement extends HTMLElement {
   entryMessage?: string;
   suggestedPrompts?: string[];
   logEnabled?: boolean;
+  assistantAvatarEnabled?: boolean;
   clearChatHistory?: () => Promise<void>;
+  // nb_changed 2026-11-17: the assistant's chat message list (an ArcGIS Collection); only the two members we use are typed here.
+  messages?: {
+    length: number;
+    push: (message: { id: string; role: "assistant"; blocks: { type: "text"; data: { content: string } }[] }) => unknown;
+  };
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -100,6 +124,17 @@ export function AssistantPanel({
     el.entryMessage = ASSISTANT_ENTRY_MESSAGE;
     el.suggestedPrompts = ASSISTANT_SUGGESTED_PROMPTS;
     el.logEnabled = logEnabled;
+    // 5.1: shows the blue assistant icon next to each reply (drawn outside the bubble, see assistantStyler.ts)
+    el.assistantAvatarEnabled = true;
+    // Only while the chat is empty, so repeated calls never duplicate it or insert it after the user has asked something.
+    if (el.messages && el.messages.length === 0) {
+      // In 5.1 an assistant message is rendered from its `blocks` only; a plain `content` string draws nothing.
+      el.messages.push({
+        id: ASSISTANT_FIRST_MESSAGE_ID,
+        role: "assistant",
+        blocks: [{ type: "text", data: { content: ASSISTANT_FIRST_MESSAGE } }],
+      });
+    }
   };
 
   // Applying these properties once is unreliable: the custom element isn't
@@ -110,12 +145,23 @@ export function AssistantPanel({
   // to self-heal.
   const applyAssistantCopyWithRetries = () => {
     applyAssistantCopy();
-    const retryDelays = [50, 150, 300, 600, 1000];
+    const retryDelays = [50, 150, 300, 600, 1000, 2000, 4000];
     const timers = retryDelays.map((delay) => setTimeout(applyAssistantCopy, delay));
     return () => timers.forEach(clearTimeout);
   };
 
-  useEffect(() => applyAssistantCopyWithRetries(), [webMapId, mcpHubRefreshToken, logEnabled]);
+  useEffect(() => {
+    const stopRetries = applyAssistantCopyWithRetries();
+    // The assistant resets its message list while it initialises and emits arcgisReady afterwards, so add the first
+    // message again at that point; the timers above can run before the reset.
+    const el = assistantRef.current;
+    const onReady = () => applyAssistantCopy();
+    el?.addEventListener("arcgisReady", onReady);
+    return () => {
+      stopRetries();
+      el?.removeEventListener("arcgisReady", onReady);
+    };
+  }, [webMapId, mcpHubRefreshToken, logEnabled, isMapReady, mapLoadError]);
 
   const handleNewChat = async () => {
     await assistantRef.current?.clearChatHistory?.();
@@ -132,7 +178,9 @@ export function AssistantPanel({
       <div className="ds-glass-border">
         <div className="ds-glass-inner">
           <div className="ds-panel-strip">
-            <span className="ds-eyebrow">עוזר AI גיאוגרפי ומעודכן בחדשות הכי חמות</span>
+            {/* nb_changed 2026-11-17: new strip text (the old one is kept below, commented out). Size is set in styles.css (.ds-eyebrow). */}
+            {/* <span className="ds-eyebrow">עוזר AI גיאוגרפי ומעודכן בחדשות הכי חמות</span> */}
+            <span className="ds-eyebrow">עוזר אישי לרשותך לתחקור שכבות ומסמך תוכנית המתאר תא/5500</span>
             <span className="ds-spacer" />
             <span className="ds-live-dot" />
           </div>

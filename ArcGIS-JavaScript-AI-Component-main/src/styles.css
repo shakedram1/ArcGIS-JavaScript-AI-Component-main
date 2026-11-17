@@ -177,6 +177,63 @@ arcgis-map.ds-map {
   color: var(--slate-950);
 }
 
+/* nb_changed 2026-11-16: logos at the start of the bar (they replace the .ds-spark icon above, whose rules are kept but unused).
+   Both are 40px high. The Tel Aviv logo is a white-background JPEG that blends with the light glass bar. The Systematics image
+   (1321x331) is a wide green banner with its white text only in the right half (measured text box: x 544-1262, y 170-292), so
+   it is cropped to a 150x40 green tile: the image is drawn 238px wide (scale 0.18, text about 129x22px) and offset so that
+   the centre of the text (x 903, y 231 in the image) lands at the centre of the tile, leaving about 10px of padding each side.
+   The tile background is the logo's own green so the strip left uncovered at the bottom is invisible. */
+.ds-header-logos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+/* nb_changed 2026-11-16 (logo sizes, supersedes the 40px numbers in the comment above): both logos are now 52px high so the Tel
+   Aviv logo looks bigger. The Systematics tile is wider (190x52) and its word is smaller (scale 0.13: the word is about 93x16px,
+   centred), so there is more green around it and the two logos balance. Offsets from the measured text centre of the image
+   (x 903, y 231 of 1321x331): left = 95 - 903*0.13 = -22.4px, top = 26 - 231*0.13 = -4.0px. The tile background is the image's
+   own green, so the area the image does not cover (right and bottom) is seamless. The previous values are kept in comments. */
+.ds-logo--ta {
+  display: block;
+  /* height: 40px; */
+  height: 52px;
+  width: auto;
+  border-radius: 6px;
+}
+/* nb_changed 2026-11-16 (supersedes the cropped-tile numbers above): the Systematics logo is shown as the ORIGINAL, uncropped image,
+   because the word is not centred in the original file and the crop did not look right. The tile has the image's own shape at 52px
+   high (52 x 1321/331 = about 208px wide) and the image fills it, so the whole green banner shows exactly as in the file. The
+   cropped-tile values are kept below in comments, so the crop can be restored. */
+.ds-logo--systematics {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  /* width: 150px; */
+  /* height: 40px; */
+  /* width: 190px; */
+  width: 208px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #548e61;
+}
+.ds-logo--systematics img {
+  position: absolute;
+  /* width: 238px; */
+  /* width: 171.7px; */
+  width: 100%;
+  /* height: auto; */
+  height: 100%;
+  /* left: -87.5px; */
+  /* top: -21.6px; */
+  /* left: -22.4px; */
+  /* top: -4px; */
+  left: 0;
+  top: 0;
+  max-width: none; /* keep the set width even if a global img rule limits it */
+}
+
 .ds-header-text {
   display: flex;
   flex-direction: column;
@@ -188,7 +245,9 @@ arcgis-map.ds-map {
 
 .ds-eyebrow {
   font-family: var(--font-ui);
-  font-size: var(--fs-xs);
+  /* nb_changed 2026-11-17: strip text made bigger (medium, 16px). Previous value kept below. */
+  /* font-size: var(--fs-xs); */
+  font-size: 16px;
   letter-spacing: 0.01em;
   color: var(--accent-ink);
   font-weight: var(--fw-semibold);
@@ -203,6 +262,12 @@ arcgis-map.ds-map {
   font-weight: var(--fw-medium);
   letter-spacing: 0.01em;
   white-space: nowrap;
+  /* nb_changed 2026-11-16: the page is right-to-left, which put the Hebrew city name at the far LEFT of this line (the last part of
+     the text goes leftmost in an RTL line). direction: ltr makes the line read left to right as written: "ArcGIS Maps SDK for
+     JavaScript · Systematics · עיריית תל אביב יפו". text-align: right keeps the line flush with the right edge, like the title
+     and the credits line below it. The text itself (AppHeader.tsx) is unchanged. */
+  direction: ltr;
+  text-align: right;
 }
 
 .ds-eyebrow-latin {
@@ -755,3 +820,178 @@ arcgis-map.ds-map {
 .pq-dialog { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 12px; }
 .pq-choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .pq-boundary select { width: 100%; margin-top: 6px; padding: 4px; }
+/* nb_changed 2026-11-16: TA5500 PDF viewer window (src/components/PdfViewerWindow.tsx) and its map button.
+   The window floats above the map and the chat panel (z-index 22 > --z-panel 20, < --z-header 30), is resizable (CSS resize)
+   and is placed by inline left/top (dragged by its header). The chat panel is on the right, so the default left/top keep clear of it. */
+.pdf-toggle {
+  background: var(--calcite-color-foreground-1, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.pdf-window {
+  position: fixed;
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  /* nb_changed 2026-11-16 (revision 3): width and height are no longer set here: PdfViewerWindow.tsx sets them inline from its
+     `size` state, which the user changes with the edge/corner handles (.pdf-resize). The browser's `resize: both` triangle was
+     removed (it sat in the bottom-left corner of this RTL window, over the chunk text). The minimums stay as a safety net. */
+  min-width: 340px;
+  min-height: 300px;
+  overflow: hidden;
+  background: var(--calcite-color-foreground-1, #fff);
+  color: var(--calcite-color-text-1, #203040);
+  border: 1px solid var(--calcite-color-border-3, #cfd4dc);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+}
+
+.pdf-window__header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px;
+  background: var(--calcite-color-foreground-2, #f3f4f6);
+  border-bottom: 1px solid var(--calcite-color-border-3, #cfd4dc);
+  cursor: move;
+  user-select: none;
+  touch-action: none; /* lets pointer events drag the window on touch screens */
+}
+.pdf-window__title { font-weight: 700; font-size: 0.92rem; }
+.pdf-window__spacer { flex: 1 1 auto; }
+
+.pdf-window__nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+}
+.pdf-window__counter { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.pdf-window__pages { margin-inline-start: auto; font-size: 0.85rem; display: inline-flex; gap: 4px; align-items: center; }
+.pdf-window__pages button,
+.pdf-window__chips button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  border: 1px solid var(--calcite-color-border-3, #cfd4dc);
+  border-radius: 12px;
+  background: var(--calcite-color-foreground-1, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+/* nb_changed 2026-11-16: the ".pdf-window__pages button.on" state was removed: the multi-page buttons of a chunk now scroll
+   to that page's box, they no longer switch a shown page, so there is no "current page" to mark */
+.pdf-window__chips button.on { background: #ff6a00; border-color: #ff6a00; color: #fff; }
+.pdf-window__chips button.nomap { opacity: 0.55; border-style: dashed; }
+
+.pdf-window__chips {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  direction: ltr; /* chunk ids such as 3.1.5(ג) and 5.4[58] read correctly in a left-to-right row */
+}
+
+.pdf-window__viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #8a93a3;
+}
+/* nb_changed 2026-11-16 (revision 2): the viewer now holds ALL pages one under the other. .pdf-window__pages is the column
+   (padding-top and the page margin-bottom are PAGE_GAP = 12px in PdfViewerWindow.tsx and must match); each page gets its exact
+   size from inline style, so it is a white placeholder until its canvas is drawn. When the zoom makes a page wider than the
+   window the column grows (max-content) and the viewer scrolls sideways; auto margins keep narrower pages centred. */
+.pdf-window__column {
+  width: max-content;
+  min-width: 100%;
+  padding-top: 12px;
+  box-sizing: border-box;
+}
+.pdf-window__page {
+  position: relative;
+  margin: 0 auto 12px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.pdf-window__page canvas { display: block; width: 100%; height: 100%; }
+/* nb_changed 2026-11-16: the overlay fills its page (it used to get the canvas size inline); boxes are in percent of the page */
+.pdf-window__overlay { position: absolute; inset: 0; pointer-events: none; }
+/* nb_changed 2026-11-16 (revision 3): page picker row under the header: [up] page [ n ] / total [down] */
+.pdf-window__pagebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--calcite-color-border-3, #cfd4dc);
+}
+.pdf-window__pageinput {
+  width: 56px;
+  padding: 2px 6px;
+  font: inherit;
+  text-align: center;
+  color: inherit;
+  background: var(--calcite-color-foreground-1, #fff);
+  border: 1px solid var(--calcite-color-border-3, #cfd4dc);
+  border-radius: 6px;
+}
+.pdf-window__pageinput:focus { outline: 2px solid #1f5fbf; outline-offset: 0; }
+
+/* nb_changed 2026-11-16 (revision 3): resize handles on the 4 edges and 4 corners of the window. They use physical left/right/top/bottom
+   (correct inside the RTL window), sit above the content, and are invisible except for a grip in the bottom-right corner and a
+   light highlight while hovered. Edges are 6px thick; corners 14px so they win over the edges where they meet. */
+.pdf-resize { position: absolute; z-index: 5; touch-action: none; }
+.pdf-resize:hover { background: color-mix(in srgb, #1f5fbf 22%, transparent); }
+.pdf-resize--n { top: 0; left: 14px; right: 14px; height: 6px; cursor: ns-resize; }
+.pdf-resize--s { bottom: 0; left: 14px; right: 14px; height: 6px; cursor: ns-resize; }
+.pdf-resize--e { right: 0; top: 14px; bottom: 14px; width: 6px; cursor: ew-resize; }
+.pdf-resize--w { left: 0; top: 14px; bottom: 14px; width: 6px; cursor: ew-resize; }
+.pdf-resize--ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+.pdf-resize--sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+.pdf-resize--nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+.pdf-resize--se {
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  /* the visible grip: three short diagonal lines in the corner */
+  background: linear-gradient(135deg, transparent 0 55%, #8a93a3 55% 62%, transparent 62% 72%, #8a93a3 72% 79%, transparent 79% 89%, #8a93a3 89% 96%, transparent 96%);
+}
+
+/* nb_changed 2026-11-16: one-line hint shown above the PDF when no chunks have been returned yet */
+.pdf-window__hint { padding: 6px 12px; font-size: 0.82rem; color: var(--calcite-color-text-3, #6b6b6b); }
+
+/* a chunk's box: blue for the other returned chunks on the page, orange for the chosen one, dashed when the box is estimated */
+.pdf-box {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 2px solid #1f5fbf;
+  border-radius: 2px;
+  background: color-mix(in srgb, #1f5fbf 14%, transparent);
+}
+.pdf-box--sel {
+  z-index: 2;
+  border: 3px solid #ff6a00;
+  background: color-mix(in srgb, #ff6a00 28%, transparent);
+}
+.pdf-box--est { border-style: dashed; }
+
+.pdf-window__details { padding: 6px 10px 8px; border-top: 1px solid var(--calcite-color-border-3, #cfd4dc); }
+.pdf-window__meta { font-size: 0.8rem; color: var(--calcite-color-text-3, #6b6b6b); }
+.pdf-window__text {
+  margin-top: 4px;
+  max-height: 96px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  unicode-bidi: plaintext;
+}
+.pdf-window__empty,
+.pdf-window__error { padding: 14px 12px; font-size: 0.9rem; }
+.pdf-window__error { color: #b3261e; font-weight: 600; }

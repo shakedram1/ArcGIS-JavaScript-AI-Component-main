@@ -19,6 +19,7 @@ import { ChangeMapDialog } from "./components/ChangeMapDialog";
 import { NewMapDialog } from "./components/NewMapDialog";
 import HubServerManager from "./components/HubServerManager";
 import { resolveArcgisMcpBaseUrl } from "./utils/arcgisMcp";
+import { PdfViewerWindow } from "./components/PdfViewerWindow"; // nb_changed 2026-11-16: TA5500 PDF viewer window
 
 // ---------------------------------------------------------------------------
 // App-level helpers
@@ -77,6 +78,7 @@ export default function App() {
   const [showChangeMapDialog, setShowChangeMapDialog] = useState(false);
   const [showNewMapDialog, setShowNewMapDialog] = useState(false);
   const [showEmptyMapAssistantNotice, setShowEmptyMapAssistantNotice] = useState(true);
+  const [showPdfViewer, setShowPdfViewer] = useState(false); // nb_changed 2026-11-16: PDF viewer window open/closed
 
   const themeEditorSnapshotRef = useRef<ThemeSnapshot | null>(null);
 
@@ -84,6 +86,14 @@ export default function App() {
   useEffect(() => {
     setShowEmptyMapAssistantNotice(true);
   }, [webMap.webMapId]);
+
+  // nb_changed 2026-11-16: a RAG answer with chunk hits (event fired by setLastTa5500Hits) opens the PDF viewer window
+  // automatically; the window itself then jumps to the first chunk. It can be closed and reopened from the map button.
+  useEffect(() => {
+    const openViewer = () => setShowPdfViewer(true);
+    window.addEventListener("ta5500-hits-changed", openViewer);
+    return () => window.removeEventListener("ta5500-hits-changed", openViewer);
+  }, []);
 
   // Sync document title
   useEffect(() => {
@@ -235,7 +245,10 @@ export default function App() {
             webMapId={webMap.webMapId}
             mapElementRef={webMap.mapElementRef}
             homeElementRef={webMap.homeElementRef}
+            onTogglePdf={() => setShowPdfViewer((open) => !open)} // nb_changed 2026-11-16: map button toggles the viewer
           />
+          {/* nb_changed 2026-11-16: floating PDF window; always mounted so it keeps the last hits, drawn only while open */}
+          <PdfViewerWindow open={showPdfViewer} onClose={() => setShowPdfViewer(false)} />
           <div className="ds-ambient" aria-hidden="true" />
           <PolygonQueryPanel
             mapElementRef={webMap.mapElementRef}

@@ -8,7 +8,8 @@ import { MCP_NOT_PLAN_SUFFIX } from "../ta5500/prompts";
 import { abortActiveMcpRequests, callMcpTool, clearMcpCaches, isAbortLikeError, listHubServers, listMcpTools, type HubServerSummary } from "../utils/mcpClient";
 import { inputSchemaToZod, normalizeToolArgsForCall, truncateDescription } from "../utils/mcpZodSchema";
 import { clearMcpGeoLayer, renderMcpGeoEntities, type GeoEntity } from "../utils/mcpGeoRenderer";
-import { setLastAssistantGeoSnapshot } from "../utils/assistantState";
+import { setLastAssistantGeoSnapshot, setLastTa5500Hits } from "../utils/assistantState"; // nb_changed 2026-11-16: + setLastTa5500Hits
+import { parseTa5500Hits } from "../utils/ta5500Chunks"; // nb_changed 2026-11-16: reads the chunk-id marker from the RAG output
 import { agentRuntimeChannels, agentResult, readAgentRequest, seedAgentMessages } from "./agentRuntime";
 import { applyFocusToSearchArgs, type GisCode } from "../utils/focusFilters";
 import { getActiveFocus, getFocusState, setFocusEnabled } from "../utils/focusStore";
@@ -718,6 +719,11 @@ export function registerMcpPassthroughAgent(
       const text = aiText || `The ${ctx.serverName || "MCP"} server did not return a response.`;
       const toolArgs: Record<string, unknown>[] = agentState?.toolCallArgsList ?? [];
       const toolOutputs: string[] = agentState?.toolOutputTextList ?? [];
+
+      // nb_changed 2026-11-16: if a TA5500 RAG search ran in this turn, publish its ranked chunk ids so the PDF viewer window
+      // opens and highlights them. Independent of the geo rendering below, which is unchanged.
+      const ta5500Hits = parseTa5500Hits(toolOutputs);
+      if (ta5500Hits.length) setLastTa5500Hits(ta5500Hits);
 
       latestGeoRenderToken += 1;
       const currentToken = latestGeoRenderToken;
