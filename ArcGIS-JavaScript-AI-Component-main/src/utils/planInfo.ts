@@ -24,7 +24,7 @@ export interface ZonePlanResult {
   areaNotes: string[];
 }
 
-const NONE = "—";
+const NONE = "-";
 let searchToolName: string | null = null;
 
 async function hubRpc(method: string, params?: unknown): Promise<any> {
@@ -69,6 +69,19 @@ function clip(s: string, max: number): string {
   return cut.slice(0, Math.max(cut.lastIndexOf(" "), max - 20)) + "…";
 }
 
+/**
+ * One "additional use" clause of a zone, cut down to the use itself (the plan appends its
+ * conditions after "ובלבד ש…", "למעט…" and so on), e.g.
+ * "בקומת הקרקע - מסחר 1, תעסוקה 1 ושימושים בעלי אופי ציבורי ובלבד ש…" → "בקומת הקרקע - מסחר 1, תעסוקה 1 ושימושים בעלי אופי ציבורי".
+ */
+function condenseUse(line: string): string {
+  let t = line.replace(/\s+/g, " ").trim();
+  const cut = /,?\s+(?:ובלבד|למעט|בין\s|בהתאם|ובכפוף|אשר|במבנה)/.exec(t);
+  if (cut && cut.index > 0) t = t.slice(0, cut.index);
+  t = t.replace(/^שימוש ממקבץ השימושים ל/, "").replace(/[,.;:\s]+$/, "");
+  return clip(t, 110);
+}
+
 function parseFar(text: string): string {
   const nums = [...text.matchAll(/רח["״”]ק\s*(?:בסיסי|מרבי)\s*:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
   if (nums.length === 0) {
@@ -101,7 +114,7 @@ function parseZoneHit(hit: string, zone: string): Omit<ZoneInfo, "zone"> {
       .split("\n")
       .map((l) => l.replace(/^\s*\([א-ת0-9]+\)\s*/, "").trim())
       .filter(Boolean)
-      .map((l) => "• " + clip(l, 110));
+      .map(condenseUse);
     if (items.length) extra = items.join("\n");
   }
 
@@ -118,6 +131,45 @@ function parseZoneHit(hit: string, zone: string): Omit<ZoneInfo, "zone"> {
   };
 }
 
+/** Spelling-insensitive key for matching zone names between the map and the plan (בנייה/בניה, ייעוד/יעוד, quotes). */
+function normName(s: string): string {
+  return s.replace(/["'׳״”“’]/g, "").replace(/יי/g, "י").replace(/\s+/g, " ").trim();
+}
+
+interface AreaRule {
+  far: string | null;
+  floors: string | null;
+  notes: string[];
+}
+
+/**
+ * Table 5.4 rows of the planning area that are about this very zone ("המרחב עליו חלות ההוראות").
+ * They carry the area-specific maximum floors / FAR and the special instructions for the zone.
+ */
+function parseAreaRules(hits: string[], zone: string, areaCode: string): AreaRule {
+  const rule: AreaRule = { far: null, floors: null, notes: [] };
+  const areaRe = new RegExp(`אזור תכנון ${areaCode}(?![0-9])`);
+  for (const hit of hits) {
+    const lines = hit.split("\n");
+    if (!/^\[\d+\]\s*טבלה 5\.4/.test(lines[0]) || !areaRe.test(lines[0])) continue;
+    const body = lines.slice(1).join("\n");
+    const label =
+      /המרחב עליו חלות ההוראות:\s*([^|\n]+?)\s*(?:\||\n|$)/.exec(body)?.[1] ??
+      /\[[^\]]*>\s*([^\]>]+)\]\s*$/m.exec(lines[2] ?? "")?.[1];
+    if (!label || normName(label) !== normName(zone)) continue;
+
+    const far = /רח["״”]ק מרבי[^:\n|]*:\s*([^\n|]+)/.exec(body)?.[1]?.trim();
+    if (far && !rule.far) rule.far = far;
+    const floors = /מס['׳]?\s*קומות מרבי[^:\n|]*:\s*([^\n|]+)/.exec(body)?.[1]?.trim();
+    if (floors && !rule.floors) rule.floors = floors;
+    const notesText = /הערות והוראות נוספות[^:\n]*:([\s\S]*)$/.exec(body)?.[1] ?? "";
+    for (const n of notesText.split(/\s*\n?\s*-\s+/).map((x) => x.replace(/\s+/g, " ").trim())) {
+      if (n.length > 3 && !rule.notes.includes(n)) rule.notes.push(n);
+    }
+  }
+  return rule;
+}
+
 function parseAreaNotes(hits: string[]): string[] {
   const notes: string[] = [];
   for (const hit of hits) {
@@ -127,7 +179,8 @@ function parseAreaNotes(hits: string[]): string[] {
     const note = lines
       .slice(2)
       .map((l) => l.replace(/^\s*-\s*/, "").trim())
-      .find((l) => l && !/^תשריט|^\[|^המרחב|^הערות והוראות/.test(l) && l.length > 12);
+      // A bare pointer such as "רח"ק מרבי (1): ראו הערות" carries no instruction of its own.
+      .find((l) => l && !/^תשריט|^\[|^המרחב|^הערות והוראות/.test(l) && l.length > 12 && !/ראו\s+הערות\s*$/.test(l));
     if (label && note) notes.push(`${label}: ${clip(note, 140)}`);
     if (notes.length >= 4) break;
   }
@@ -160,5 +213,21 @@ export async function fetchZoneInfo(zone: string, areaCode?: string): Promise<Zo
       areaNotes,
     };
   }
-  return { info: { zone, ...parseZoneHit(zoneHit, zone) }, areaNotes };
+  const info: ZoneInfo = { zone, ...parseZoneHit(zoneHit, zone) };
+
+  // Area-specific rows of table 5.4 for this zone: maximum floors and the special instructions.
+  const rule = areaCode ? parseAreaRules(hits, zone, areaCode) : { far: null, floors: null, notes: [] as string[] };
+  if (rule.floors) {
+    if (/ללא/.test(rule.floors)) info.height = "ללא מגבלת גובה";
+    else {
+      const n = /\d+/.exec(rule.floors)?.[0];
+      if (n) info.height = `עד ${n} קומות`;
+    }
+  }
+  const special: string[] = [];
+  if (rule.far && /\d/.test(rule.far)) special.push(`רח"ק מרבי באזור התכנון: ${rule.far.replace(/\s*ראו הערות/, "").trim()}`);
+  special.push(...rule.notes.slice(0, 3).map((n) => clip(n, 140)));
+  // The zone's own clause (ג) is general text, not an instruction for this area, so it is not shown.
+  info.directives = special.length ? special.join("\n") : NONE;
+  return { info, areaNotes };
 }

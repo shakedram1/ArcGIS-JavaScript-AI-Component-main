@@ -10,7 +10,7 @@
     "test": "tsx --test src/agents/__tests__/*.test.ts src/ta5500/__tests__/*.test.ts",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "test:local": "npx tsx tests/run-tests.ts",
-    "test:unit": "tsx --test src/utils/focusFilters.test.ts src/utils/focusOverlap.test.ts src/utils/focusNotes.test.ts",
+    "test:unit": "tsx --test src/utils/focusFilters.test.ts src/utils/focusOverlap.test.ts src/utils/focusNotes.test.ts src/utils/zoneTable.test.ts",
     "hub": "npx tsx --env-file=.env.local hub/server.ts",
     "hub:dev": "npx tsx --env-file=.env.local --watch hub/server.ts"
   },

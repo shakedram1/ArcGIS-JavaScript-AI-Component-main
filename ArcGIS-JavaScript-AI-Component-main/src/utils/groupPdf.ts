@@ -217,11 +217,27 @@ export async function composeCardsPage(cards: MapCard[]): Promise<PdfPageImage> 
 export interface TableColumn {
   title: string;
   color: string;
+  /** The zone is drawn hatched on the map: hatch the column background too. */
+  hatch?: boolean;
 }
 export interface TableRow {
   label: string;
   /** one entry per column; "\n" separates lines */
   cells: string[];
+  /** Underline the cell text like the links in the sketch: "use" in blue, "alert" in maroon. Empty cells ("-") stay plain. */
+  link?: "use" | "alert";
+}
+
+const LINK_COLORS = { use: "#1f3a93", alert: "#8e2a52" } as const;
+const EMPTY_CELL = /^\s*[-—–]?\s*$/;
+
+/** Black text on light fills, white on dark ones. */
+function textOn(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#111";
+  const n = parseInt(m[1], 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum < 0.45 ? "#fff" : "#111";
 }
 
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
@@ -304,13 +320,33 @@ export async function composeTablePage(input: {
   input.columns.forEach((c, i) => {
     ctx.fillStyle = c.color;
     ctx.fillRect(cellX(i), y, colW, headerH);
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = textOn(c.color);
     ctx.fillText(c.title, cellX(i) + colW / 2, y + headerH / 2, colW - pad * 2);
   });
   y += headerH;
 
-  // Body
+  // Body: text centred in every cell, like the sketch. Link-style rows are underlined.
   ctx.font = font;
+  ctx.textAlign = "center";
+  const drawCentered = (text: string, cx: number, top: number, boxH: number, maxW: number, link?: "use" | "alert") => {
+    const lines = wrapLines(ctx, text, maxW);
+    const start = top + (boxH - lines.length * lineH) / 2 + lineH / 2;
+    const underline = !!link && !EMPTY_CELL.test(text);
+    ctx.fillStyle = underline ? LINK_COLORS[link!] : "#111";
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = 1.5;
+    lines.forEach((line, li) => {
+      const ly = start + li * lineH;
+      ctx.fillText(line, cx, ly);
+      if (underline && line) {
+        const half = ctx.measureText(line).width / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - half, ly + 12);
+        ctx.lineTo(cx + half, ly + 12);
+        ctx.stroke();
+      }
+    });
+  };
   input.rows.forEach((r, ri) => {
     const h = rowHeights[ri];
     ctx.fillStyle = "#f3f3f3";
@@ -318,22 +354,33 @@ export async function composeTablePage(input: {
     ctx.strokeStyle = "#222";
     ctx.lineWidth = 1.5;
     ctx.strokeRect(right - labelW, y, labelW, h);
-    ctx.fillStyle = "#111";
-    ctx.textAlign = "right";
-    wrapLines(ctx, r.label, labelW - pad * 2).forEach((line, li) =>
-      ctx.fillText(line, right - pad, y + pad + lineH / 2 + li * lineH),
-    );
+    drawCentered(r.label, right - labelW / 2, y, h, labelW - pad * 2);
     r.cells.forEach((cell, ci) => {
-      ctx.fillStyle = hexToTint(input.columns[ci]?.color ?? "#cccccc", 0.12);
+      ctx.fillStyle = hexToTint(input.columns[ci]?.color ?? "#cccccc", input.columns[ci]?.hatch ? 0.15 : 0.3);
       ctx.fillRect(cellX(ci), y, colW, h);
+      if (input.columns[ci]?.hatch) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cellX(ci), y, colW, h);
+        ctx.clip();
+        ctx.strokeStyle = input.columns[ci].color;
+        ctx.lineWidth = 3;
+        for (let d = -h; d < colW; d += 14) {
+          ctx.beginPath();
+          ctx.moveTo(cellX(ci) + d, y + h);
+          ctx.lineTo(cellX(ci) + d + h, y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 1.5;
       ctx.strokeRect(cellX(ci), y, colW, h);
-      ctx.fillStyle = "#111";
-      wrapLines(ctx, cell, colW - pad * 2).forEach((line, li) =>
-        ctx.fillText(line, cellX(ci) + colW - pad, y + pad + lineH / 2 + li * lineH),
-      );
+      drawCentered(cell, cellX(ci) + colW / 2, y, h, colW - pad * 2, r.link);
     });
     y += h;
   });
+  ctx.textAlign = "right";
 
   // Bottom notes
   y += 30;
