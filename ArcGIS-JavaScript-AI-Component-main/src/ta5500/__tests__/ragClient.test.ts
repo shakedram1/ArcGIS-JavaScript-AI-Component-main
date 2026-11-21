@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { getPlanLocations, parsePlanLocations, parseSearchPlanResult, PlanServiceError, searchPlan } from "../ragClient";
-import type { McpToolResult } from "../../utils/mcpClient";
+import { callMcpTool, type McpToolResult } from "../../utils/mcpClient";
 
 const fixture = (name: string): McpToolResult =>
   JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
@@ -94,16 +94,35 @@ test("searchPlan calls ta5500__search_plan with the question and non-empty filte
 });
 
 test("searchPlan applies the active polygon filters and notes without replacing explicit filters", async () => {
-  const hub = stubHub(() => fixture("search-plan.json"));
+  const hub = stubHub((_name, args) => {
+    const result = fixture("search-plan.json");
+    return { ...result, structuredContent: { ...result.structuredContent as object, entity_area_scope: args.entity_area_scope } };
+  });
   const notes = [{ text: "note", layer: "layer", code: "1", priority: 1 as const, weight: 0.5 }];
   try {
     await searchPlan("/api/mcp-polygon-test", "מה מותר?", { zone_types: ["3.4"] }, {
-      filters: { areas: ["703"], zone_types: ["3.3"], entities: [], headings: [] },
+      filters: { areas: ["703"], zone_types: ["3.3"], entities: ["ר-83"], headings: [] },
       notes,
     });
     assert.deepEqual(hub.calls[0].args, {
-      question: "מה מותר?", areas: ["703"], zone_types: ["3.4"], focus_notes: notes,
+      question: "מה מותר?", areas: ["703"], zone_types: ["3.4"], entities: ["ר-83"],
+      entity_area_scope: ["703"], focus_notes: notes,
     });
+  } finally {
+    hub.restore();
+  }
+});
+
+test("searchPlan rejects a scoped response from an older service that did not confirm the scope", async () => {
+  const hub = stubHub(() => fixture("search-plan.json"));
+  try {
+    await assert.rejects(searchPlan("/api/mcp-old-polygon-test", "שאלה", {}, {
+      filters: { areas: ["703"], zone_types: [], entities: ["ר-83"], headings: [] },
+      notes: [],
+    }), /לא אישר הגבלה/);
+    await assert.rejects(callMcpTool("/api/mcp-old-generic-test", "ta5500__search_plan", {
+      entities: ["ר-83"], entity_area_scope: ["703"],
+    }), /לא אישר הגבלה/);
   } finally {
     hub.restore();
   }

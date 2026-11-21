@@ -36,7 +36,7 @@ import {
 } from "../planFlow";
 import type { PlanLocations } from "../types";
 import type { Place } from "../focus";
-import { findClauseHit, type Ta5500Chunk } from "../../utils/ta5500Chunks";
+import { chunkLabel, filterViewerHits, findClauseHit, type Ta5500Chunk } from "../../utils/ta5500Chunks";
 
 const fixtureJson = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const loc: PlanLocations = JSON.parse(fixtureJson("locations.json").content[0].text);
@@ -54,6 +54,60 @@ test("clause navigation requires the exact requested ID and a PDF location", () 
   assert.equal(findClauseHit(index, "3.3", "הצג את סעיף 3.3.2"), null);
   assert.equal(findClauseHit(index, "4.3", "הצג את סעיף 4.3"), null);
   assert.equal(findClauseHit(index, "9.9", "הצג את סעיף 9.9"), null);
+});
+
+test("PDF result labels use plan text instead of internal identifiers", () => {
+  assert.deepEqual(chunkLabel({ id: "5.4[85]" }, {
+    chunk_id: "5.4[85]", kind: "record", zone: "ר-31 רחוב אבן גבירול", area: "301",
+  }), { title: "ר-31 רחוב אבן גבירול", context: "אזור תכנון 301" });
+  assert.deepEqual(chunkLabel({ id: "5.4[3]" }, {
+    chunk_id: "5.4[3]", kind: "record", zone: "101 א' צומת גלילות", area: "101",
+  }), { title: "101 א' צומת גלילות", context: "אזור תכנון 101" });
+  assert.deepEqual(chunkLabel({ id: "1.6[2]" }, {
+    chunk_id: "1.6[2]", kind: "record", text: "[מגורים]\n- שימושים",
+  }), { title: "מגורים" });
+  const intro = { chunk_id: "root/p1", kind: "intro", heading_path: ["דברי הסבר לתכנית"], text: "תכנית מתאר כוללנית\nתוכן.\nעדכון תכנית המתאר" };
+  assert.deepEqual(chunkLabel({ id: "root/p1" }, intro), { title: "דברי הסבר לתכנית", context: "תכנית מתאר כוללנית" });
+  assert.deepEqual(chunkLabel({ id: "root/p1#2" }, {
+    chunk_id: "root/p1#2", kind: "intro", heading_path: ["דברי הסבר לתכנית"], text: "תוכן ארוך של ההסבר.",
+  }, intro), { title: "דברי הסבר לתכנית", context: "עדכון תכנית המתאר" });
+  assert.deepEqual(chunkLabel({ id: "3.1.5" }), { title: "סעיף 3.1.5" });
+  assert.deepEqual(chunkLabel({ id: "3" }, { chunk_id: "3", kind: "chapter" }), { title: "פרק 3" });
+  assert.deepEqual(chunkLabel({ id: "root/p1#2" }), { title: "קטע ללא כותרת", context: undefined });
+});
+
+test("PDF clause labels use real headings or clearly identify the parent section", () => {
+  assert.deepEqual(chunkLabel({ id: "3.2.4" }, {
+    chunk_id: "3.2.4", kind: "subsection", text: "3.2.4. אזור מגורים בבניה עירונית\nהוראות",
+  }), { title: "סעיף 3.2.4", context: "אזור מגורים בבניה עירונית" });
+  assert.deepEqual(chunkLabel({ id: "3.6.14(א)" }, {
+    chunk_id: "3.6.14(א)", kind: "clause", text: "(א) שטחי בניה\n(1) הוראות הבניה",
+  }), { title: "סעיף 3.6.14(א)", context: "שטחי בניה" });
+  assert.deepEqual(chunkLabel({ id: "3.5.1(ג)(1)" }, {
+    chunk_id: "3.5.1(ג)(1)", kind: "clause", text: "(1) מגרשים בייעוד ציבורי\n(א) הוראות",
+  }), { title: "סעיף 3.5.1(ג)(1)", context: "מגרשים בייעוד ציבורי" });
+  assert.deepEqual(chunkLabel({ id: "1.4.4" }, {
+    chunk_id: "1.4.4", kind: "clause", text: "1.4.4 מקום שתשריטי התכנית קובעים איתור פוליגוני",
+    heading_path: ["פרק 1 – זיהוי וסיווג התכנית", "1.4. פרשנות תכנית זו"],
+  }), { title: "סעיף 1.4.4", context: "תחת סעיף 1.4. פרשנות תכנית זו" });
+});
+
+test("PDF results hide broad chunks unless explicitly requested", () => {
+  const rows: Ta5500Chunk[] = [
+    { chunk_id: "root/p1", kind: "intro" },
+    { chunk_id: "3", kind: "chapter", text: "פרק 3 – אזורי יעוד" },
+    { chunk_id: "5", kind: "chapter", text: "פרק 5 – אזורי תכנון" },
+    { chunk_id: "3.2", kind: "section" },
+    { chunk_id: "5.4[85]", kind: "record" },
+  ];
+  const index = new Map(rows.map((row) => [row.chunk_id, row]));
+  const hits = rows.map((row) => ({ id: row.chunk_id }));
+  const ids = (request: string) => filterViewerHits(hits, index, request).map((hit) => hit.id);
+  assert.deepEqual(ids("מה הוראות התכנית לפוליגון?"), ["3.2", "5.4[85]"]);
+  assert.deepEqual(ids("מה כתוב בדברי ההסבר ובפרק 3?"), ["root/p1", "3", "3.2", "5.4[85]"]);
+  assert.deepEqual(ids("הוראות סעיף 3.2 באזור 301"), ["3.2", "5.4[85]"]);
+  assert.deepEqual(ids("מה כתוב בפרק אזורי תכנון?"), ["5", "3.2", "5.4[85]"]);
+  assert.deepEqual(filterViewerHits([{ id: "3", explicit: true }], index, "להציג 3"), [{ id: "3", explicit: true }]);
 });
 
 test("conversationText keeps user/assistant turns, drops tool turns, ends with the request", () => {

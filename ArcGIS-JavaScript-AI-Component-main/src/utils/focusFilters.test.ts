@@ -64,3 +64,11 @@ test("focus notes replace whatever notes the model passed", () => {
   assert.deepEqual(applyFocusToSearchArgs({ question: "q", focus_notes: [{ text: "invented" }] }, focus, notes).focus_notes, notes);
   assert.equal("focus_notes" in applyFocusToSearchArgs({ question: "q", focus_notes: [{ text: "invented" }] }, focus, []), false);
 });
+
+test("polygon entity rows are scoped to the polygon areas, not model-provided scope", () => {
+  const focus = { areas: ["703"], zone_types: [], entities: ["ר-83"], headings: [] };
+  assert.deepEqual(applyFocusToSearchArgs({ entity_area_scope: ["502"] }, focus), {
+    areas: ["703"], entities: ["ר-83"], entity_area_scope: ["703"],
+  });
+  assert.throws(() => applyFocusToSearchArgs({}, { ...focus, areas: [] }), /לא זוהה אזור תכנון/);
+});

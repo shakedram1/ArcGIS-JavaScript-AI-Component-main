@@ -67,6 +67,14 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         <arcgis-layer-list />
       </arcgis-expand>
       <arcgis-expand
+        ref={legendExpandRef as React.Ref<any>}
+        slot="top-left"
+        expand-icon="legend"
+        collapse-icon="x"
+      >
+        <arcgis-legend />
+      </arcgis-expand>
+      <arcgis-expand
         ref={basemapExpandRef as React.Ref<any>}
         slot="top-left"
         expand-icon="basemap"
@@ -104,14 +112,6 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         collapse-icon="x"
       >
         <arcgis-area-measurement-2d unit="metric" />
-      </arcgis-expand>
-      <arcgis-expand
-        ref={legendExpandRef as React.Ref<any>}
-        slot="bottom-left"
-        expand-icon="legend"
-        collapse-icon="x"
-      >
-        <arcgis-legend />
       </arcgis-expand>
     </arcgis-map>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { installAssistantUserBubbleStyler } from "../utils/assistantStyler";
 import { FocusChip, clearFocusSafely } from "./FocusChip";
 import { focusStore } from "../ta5500/focus";
@@ -100,6 +100,13 @@ export function AssistantPanel({
   footerContent,
 }: AssistantPanelProps) {
   const assistantRef = useRef<AssistantElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{ x: number; width: number } | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [width, setWidth] = useState<number>();
+  const minWidth = () => Math.min(280, Math.max(0, window.innerWidth - 72));
+  const maxWidth = () => Math.max(minWidth(), window.innerWidth - 72);
+  const clampWidth = (value: number) => Math.min(Math.max(value, minWidth()), maxWidth());
 
   // Install the bubble-styler / link opener whenever the assistant is rendered
   useEffect(() => {
@@ -174,17 +181,31 @@ export function AssistantPanel({
   const shouldRenderAssistant = isMapReady && !mapLoadError;
 
   return (
-    <div className="ds-panel" id="assistant-panel">
+    <div
+      ref={panelRef}
+      className={`ds-panel${collapsed ? " ds-panel--collapsed" : ""}`}
+      id="assistant-panel"
+      style={{ width: collapsed ? undefined : width }}
+    >
       <div className="ds-glass-border">
         <div className="ds-glass-inner">
           <div className="ds-panel-strip">
             {/* nb_changed 2026-11-17: new strip text (the old one is kept below, commented out). Size is set in styles.css (.ds-eyebrow). */}
             {/* <span className="ds-eyebrow">עוזר AI גיאוגרפי ומעודכן בחדשות הכי חמות</span> */}
-            <span className="ds-eyebrow">עוזר אישי לרשותך לתחקור שכבות ומסמך תוכנית המתאר תא/5500</span>
+            {!collapsed && <span className="ds-eyebrow">עוזר אישי לרשותך לתחקור שכבות ומסמך תוכנית המתאר תא/5500</span>}
             <span className="ds-spacer" />
-            <span className="ds-live-dot" />
+            {!collapsed && <span className="ds-live-dot" />}
+            <calcite-action
+              icon={collapsed ? "speech-bubble" : "chevron-right"}
+              scale="s"
+              text={collapsed ? "הצגת השיחה" : "קיפול השיחה"}
+              title={collapsed ? "הצגת השיחה" : "קיפול השיחה"}
+              aria-expanded={!collapsed}
+              aria-controls="assistant-panel-body"
+              onClick={() => setCollapsed((value) => !value)}
+            ></calcite-action>
           </div>
-          <div className="ds-panel-body">
+          <div className="ds-panel-body" id="assistant-panel-body" hidden={collapsed}>
             <div
               className="chat-panel-theme"
               style={{
@@ -268,6 +289,35 @@ export function AssistantPanel({
               )}
             </div>
           </div>
+          {!collapsed && (
+            <div
+              className="ds-panel-resize"
+              role="separator"
+              aria-label="שינוי רוחב השיחה"
+              aria-orientation="vertical"
+              aria-valuemin={minWidth()}
+              aria-valuemax={maxWidth()}
+              aria-valuenow={Math.round(Math.min(width ?? (logEnabled ? 620 : 400), window.innerWidth - 72))}
+              tabIndex={0}
+              onPointerDown={(event) => {
+                resizeRef.current = { x: event.clientX, width: panelRef.current?.getBoundingClientRect().width ?? 400 };
+                event.currentTarget.setPointerCapture(event.pointerId);
+                event.preventDefault();
+              }}
+              onPointerMove={(event) => {
+                const start = resizeRef.current;
+                if (start) setWidth(clampWidth(start.width + start.x - event.clientX));
+              }}
+              onPointerUp={() => { resizeRef.current = null; }}
+              onPointerCancel={() => { resizeRef.current = null; }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                const current = panelRef.current?.getBoundingClientRect().width ?? 400;
+                setWidth(clampWidth(current + (event.key === "ArrowLeft" ? 16 : -16)));
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

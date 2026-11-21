@@ -1,6 +1,6 @@
 // Client for the TA5500 RAG tools behind the MCP hub (namespaced ta5500__*). Node-safe: no DOM, no @arcgis/*.
 import { normalizeUrl } from "../agents/mcpAgentCore";
-import { callMcpToolRaw, extractText, isAbortLikeError, type McpToolResult } from "../utils/mcpClient";
+import { callMcpToolRaw, extractText, isAbortLikeError, verifyEntityAreaScope, type McpToolResult } from "../utils/mcpClient";
 import { applyFocusToSearchArgs, type FocusFilters } from "../utils/focusFilters";
 import type { FocusNote } from "../utils/focusNotes";
 import type { PlanFilters, PlanHit, PlanLocations, PlanSearchResult } from "./types";
@@ -95,7 +95,10 @@ export async function searchPlan(
     if (Array.isArray(v) && v.length) args[k] = v;
   }
   const searchArgs = focus ? applyFocusToSearchArgs(args, focus.filters, focus.notes) : args;
-  return parseSearchPlanResult(await callTool(endpointUrl, SEARCH_TOOL, searchArgs));
+  const result = await callTool(endpointUrl, SEARCH_TOOL, searchArgs);
+  const parsed = parseSearchPlanResult(result);
+  verifyEntityAreaScope(result, searchArgs);
+  return parsed;
 }
 
 const locationsCache = new Map<string, Promise<PlanLocations>>();

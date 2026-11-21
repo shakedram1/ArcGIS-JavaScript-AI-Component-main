@@ -266,8 +266,10 @@ function bindAssistantCancel(assistant: HTMLElement): void {
 /** `callMcpTool` plus the app-side behaviour: the polygon tool runs in the browser, and plan searches get the active polygon focus merged in. */
 async function callMcpToolWithFocus(endpointUrl: string, name: string, args: Record<string, unknown>): Promise<string> {
   if (name === POLYGON_TOOL_NAME) return runPolygonTool(args);
-  const focus = /(^|__)search_plan$/.test(name) ? getActiveFocus() : null;
-  const callArgs = focus ? applyFocusToSearchArgs(args, focus.filters, focus.notes) : args;
+  const isPlanSearch = /(^|__)search_plan$/.test(name);
+  const focus = isPlanSearch ? getActiveFocus() : null;
+  const callArgs = focus ? applyFocusToSearchArgs(args, focus.filters, focus.notes) : { ...args };
+  if (isPlanSearch && !focus) delete callArgs.entity_area_scope;
   return callMcpTool(endpointUrl, name, callArgs);
 }
 
@@ -724,7 +726,7 @@ export function registerMcpPassthroughAgent(
       // nb_changed 2026-11-16: if a TA5500 RAG search ran in this turn, publish its ranked chunk ids so the PDF viewer window
       // opens and highlights them. Independent of the geo rendering below, which is unchanged.
       const ta5500Hits = parseTa5500Hits(toolOutputs);
-      if (ta5500Hits.length) setLastTa5500Hits(ta5500Hits);
+      if (ta5500Hits.length) setLastTa5500Hits(ta5500Hits, readAgentRequest(agentState).userRequest || userText);
 
       latestGeoRenderToken += 1;
       const currentToken = latestGeoRenderToken;

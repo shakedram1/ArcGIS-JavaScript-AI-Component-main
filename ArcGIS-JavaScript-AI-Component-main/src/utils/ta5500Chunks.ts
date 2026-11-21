@@ -24,6 +24,8 @@ export interface Ta5500Chunk {
   kind?: string;
   text?: string;
   heading_path?: string[];
+  zone?: string | null;
+  area?: string | null;
   page_start?: number;
   page_end?: number;
   bbox_exact?: boolean; // false = the box was estimated between neighbouring chunks
@@ -36,6 +38,62 @@ export interface Ta5500Hit {
   id: string;
   p?: number | null;
   s?: number;
+  explicit?: boolean;
+}
+
+/** A readable label for the viewer; chunk IDs are internal except for actual clause numbers. */
+export function chunkLabel(hit: Ta5500Hit, chunk?: Ta5500Chunk, previous?: Ta5500Chunk): { title: string; context?: string } {
+  if (chunk?.zone) {
+    return { title: chunk.zone, context: chunk.area ? `אזור תכנון ${chunk.area}` : undefined };
+  }
+  if (chunk?.kind === "record") {
+    const title = chunk.text?.match(/^\[([^\]]+)\]/)?.[1];
+    if (title) return { title };
+  }
+  if (/^\d+(?:\.\d+)*(?:\([א-תa-z\d]+\))*$/i.test(hit.id)) {
+    const isChapter = chunk?.kind === "chapter" || /^\d+$/.test(hit.id);
+    const lines = chunk?.text?.split("\n") ?? [];
+    const firstLine = lines[0]?.trim() ?? "";
+    let context: string | undefined;
+    if (chunk?.kind === "chapter") {
+      context = firstLine.match(/^פרק\s+\d+\s*[–-]\s*(.+)$/)?.[1];
+    } else if (chunk?.kind === "section" || chunk?.kind === "subsection") {
+      const prefix = `${hit.id}.`;
+      if (firstLine.startsWith(prefix)) context = firstLine.slice(prefix.length).trim() || undefined;
+    } else if (chunk?.kind === "clause") {
+      const ownTitle = firstLine.match(/^\([א-ת\d]+\)\s+([^.!?:]{1,80})$/)?.[1]?.trim();
+      if (ownTitle && /^\s*\([א-ת\d]+\)/.test(lines[1] ?? "")) {
+        context = ownTitle;
+      } else {
+        const parent = chunk.heading_path?.slice().reverse().find((part) => /^\d+(?:\.\d+)+\.\s+\S/.test(part));
+        if (parent) context = `תחת סעיף ${parent}`;
+      }
+    }
+    return { title: `${isChapter ? "פרק" : "סעיף"} ${hit.id}`, ...(context ? { context } : {}) };
+  }
+  const heading = chunk?.heading_path?.slice(-1)[0];
+  const firstLine = chunk?.text?.split("\n")[0]?.trim();
+  const previousLine = previous?.kind === "intro" ? previous.text?.split("\n").slice(-1)[0]?.trim() : undefined;
+  const shortTitle = (line?: string) => line && line.length <= 60 && !/[.:!?]$/.test(line) ? line : undefined;
+  const bulletTitle = firstLine?.match(/^[]\s*([^:]{1,60}):/)?.[1];
+  return {
+    title: heading || "קטע ללא כותרת",
+    context: chunk?.kind === "intro" ? bulletTitle || shortTitle(firstLine) || shortTitle(previousLine) : undefined,
+  };
+}
+
+/** Broad introductory and chapter chunks are shown only when the request names them. */
+export function filterViewerHits(hits: Ta5500Hit[], index: Map<string, Ta5500Chunk>, request: string): Ta5500Hit[] {
+  const introRequested = /דברי\s+ה?הסבר|(?:ה)?מבוא|הקדמה|ת(?:ו)?כנית\s+ה?מתאר\s+ה?כוללנית|עדכון\s+ת(?:ו)?כנית\s+המתאר/i.test(request);
+  const chapters = [...request.matchAll(/(?:פרק|סעיף|chapter|section)\s*(\d+)(?![\d.])/gi)].map((match) => match[1]);
+  return hits.filter((hit) => {
+    if (hit.explicit) return true;
+    const chunk = index.get(hit.id);
+    if (chunk?.kind === "intro") return introRequested;
+    if (chunk?.kind !== "chapter") return true;
+    const title = chunk.text?.split("\n")[0]?.replace(/^פרק\s+\d+\s*[–-]\s*/, "").trim();
+    return chapters.includes(hit.id) || (!!title && /פרק|chapter/i.test(request) && request.includes(title));
+  });
 }
 
 const HITS_MARKER = /<!--ta5500-hits:(\[[\s\S]*?\])-->/g;

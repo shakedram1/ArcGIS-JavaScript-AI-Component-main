@@ -29,6 +29,8 @@ export interface ResolvedFocus {
   unmapped: Array<{ gisLayer: string; code: string }>;
 }
 
+export class EntityScopeError extends Error {}
+
 const clean = (value: unknown): string => String(value ?? "").replace(/\s+/g, " ").trim();
 const PLAIN_AREA = /^\d{3}$/;
 
@@ -73,6 +75,11 @@ export function applyFocusToSearchArgs(args: Record<string, unknown>, focus: Foc
   for (const key of Object.keys(focus) as SearchKey[]) {
     const given = merged[key];
     if (focus[key].length && !(Array.isArray(given) && given.length)) merged[key] = focus[key];
+  }
+  delete merged.entity_area_scope;
+  if (Array.isArray(merged.entities) && merged.entities.length) {
+    if (!focus.areas.length) throw new EntityScopeError("לא ניתן להגביל את הוראות הרחוב: לא זוהה אזור תכנון בפוליגון.");
+    merged.entity_area_scope = focus.areas;
   }
   if (notes.length) merged.focus_notes = notes;
   else delete merged.focus_notes;

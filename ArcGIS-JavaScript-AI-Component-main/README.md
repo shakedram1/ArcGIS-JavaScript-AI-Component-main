@@ -45,6 +45,7 @@ Most of this app has been vibe coded with various coding agents. Review the code
 - Render MCP geography on the map when results include places, ranked city lists, or bounding boxes — each map pin shows a popup sourced from the specific article or record that mentioned that place, not a generic summary.
 - Create and manage hosted feature layers from assistant results.
 - Customise the app header and chat panel via the theme editor (`?mode=edit`) — changes persist across browser refreshes via `localStorage`.
+- Collapse the chat without clearing its conversation, or resize it from its left edge (also using the arrow keys). App dialogs can be dragged by their headers.
 
 ## Local Development Requirements
 
@@ -335,9 +336,9 @@ When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122
 
 Other agents (data exploration, layer creation, help) stay available. In TA5500 mode the MCP passthrough agent is available for other connected MCP tools, but not when the hub only exposes the TA5500 tools.
 
-**PDF viewer.** Plan search hits open the viewer and highlight their chunks; "ניקוי סימונים" clears only the PDF highlights. A request to show a numbered clause uses the PDF index directly; a request to show a provision by topic uses RAG to locate it without generating an answer. `public/ta5500/chunks.json` is exported from the RAG's `bundle/chunks.parquet`; regenerate it after rebuilding the bundle using `python -m pipeline.export_pdf_chunks` in the RAG repository. Deploy it with the same PDF used to generate the boxes. Restart the TA5500 MCP server in the hub after changing its wrapper.
+**PDF viewer.** Plan search hits open the viewer and highlight their chunks; the results pane to the right of the PDF navigates between them using plan labels. Introductory and whole-chapter chunks are excluded from the pane and highlights unless specifically requested; this does not change the RAG response. "ניקוי סימונים" clears only the PDF highlights. A request to show a numbered clause uses the PDF index directly; a request to show a provision by topic uses RAG to locate it without generating an answer. `public/ta5500/chunks.json` is exported from the RAG's `bundle/chunks.parquet`; regenerate it after rebuilding the bundle using `python -m pipeline.export_pdf_chunks` in the RAG repository. Deploy it with the same PDF used to generate the boxes. Restart the TA5500 MCP server in the hub after changing its wrapper.
 
-**Polygon query.** Use the map toolbar to draw a polygon and display intersecting planning layers. Enable its chat filter with the polygon chip or by asking about the polygon; the plan agent applies its filters and notes to searches. The planning-info export action becomes available once the analysis completes; the results panel's clear button removes the polygon and its map results.
+**Polygon query.** Use the map toolbar to draw a polygon and display intersecting planning layers. Enable its chat filter with the polygon chip or by asking about the polygon; the plan agent applies its filters and notes to searches. Street rows are restricted to the polygon's intersected planning areas; the app requires the RAG service and MCP wrapper to confirm that scope. The planning-info export action becomes available once the analysis completes; the results panel's clear button removes the polygon and its map results.
 
 **Focus.** A plan answer sets the map focus (a place plus highlighted layers). A chip "מיקוד: …" with an X appears in the assistant panel while a focus is active. The focus is cleared by the chip, by asking ("נקה מיקוד", "אפס את המפה"), or by "שיחה חדשה"; clearing restores layer visibility and filters.
 

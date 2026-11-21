@@ -10,7 +10,8 @@ import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRunt
 import { getPlanLocations, searchPlan } from "../ta5500/ragClient";
 import { setLastTa5500Hits } from "../utils/assistantState";
 import { getActiveFocus, getFocusState, setFocusEnabled } from "../utils/focusStore";
-import { findClauseHit, loadTa5500ChunkIndex, regionsOf } from "../utils/ta5500Chunks";
+import { filterViewerHits, findClauseHit, loadTa5500ChunkIndex, regionsOf } from "../utils/ta5500Chunks";
+import { EntityScopeError } from "../utils/focusFilters";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "../ta5500/types";
 import { matchTopicOverrides, TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
 import { validateRequest } from "../ta5500/planLogic";
@@ -79,6 +80,10 @@ const last = <T>(fallback: () => T) => Annotation<T>({ reducer: (_prev, next) =>
 
 /** RAG outage → "failed" with a do-not-retry summary; any other error → ok with a do-not-retry summary (failureReply). */
 function failure(err: unknown) {
+  if (err instanceof EntityScopeError) {
+    console.warn("ta5500 plan agent:", err);
+    return agentResult({ output: err.message, ok: true, summary: "polygon entity scope unavailable; the user was informed; do not retry" });
+  }
   return agentResult(failureReply(err, "ta5500 plan agent"));
 }
 
@@ -139,7 +144,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
           if (!hit) {
             return { done: true, ...agentResult({ output: "לא נמצא במסמך סעיף מזוהה עם מיקום להצגה. ניתן לציין מספר סעיף מדויק.", ok: true }) };
           }
-          setLastTa5500Hits([hit]);
+          setLastTa5500Hits([{ ...hit, explicit: true }], userRequest || request);
           return { done: true, ...agentResult({ output: `הסעיף ${hit.id} מוצג במסמך.`, ok: true }) };
         }
 
@@ -255,19 +260,21 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
         }
         const result = await searchPlan(baseUrl, s.question, s.filters, focus ?? undefined);
         const hits = planViewerHits(result);
+        const { request, userRequest } = readAgentRequest(s);
         if (s.pdfOnly) {
           const index = await loadTa5500ChunkIndex();
-          const located = hits.filter((hit) => {
+          const visibleHits = filterViewerHits(hits, index, userRequest || request);
+          const located = visibleHits.filter((hit) => {
             const chunk = index.get(hit.id);
             return chunk && regionsOf(chunk).length;
           });
           if (result.band === "low" || !located.length) {
             return { done: true, ...agentResult({ output: "לא נמצא במסמך סעיף תואם בביטחון מספיק. ניתן לציין נושא מדויק יותר או מספר סעיף.", ok: true }) };
           }
-          setLastTa5500Hits(located);
+          setLastTa5500Hits(located, userRequest || request);
           return { done: true, ...agentResult({ output: "הסעיפים המתאימים מוצגים במסמך.", ok: true }) };
         }
-        setLastTa5500Hits(hits);
+        setLastTa5500Hits(hits, userRequest || request);
         return { result };
       } catch (err) {
         return { done: true, ...failure(err) };
