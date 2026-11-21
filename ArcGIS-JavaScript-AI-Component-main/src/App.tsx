@@ -19,6 +19,7 @@ import { ChangeMapDialog } from "./components/ChangeMapDialog";
 import { NewMapDialog } from "./components/NewMapDialog";
 import HubServerManager from "./components/HubServerManager";
 import { resolveArcgisMcpBaseUrl } from "./utils/arcgisMcp";
+import { getLastTa5500Hits } from "./utils/assistantState";
 import { PdfViewerWindow } from "./components/PdfViewerWindow"; // nb_changed 2026-11-16: TA5500 PDF viewer window
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,9 @@ export default function App() {
   // nb_changed 2026-11-16: a RAG answer with chunk hits (event fired by setLastTa5500Hits) opens the PDF viewer window
   // automatically; the window itself then jumps to the first chunk. It can be closed and reopened from the map button.
   useEffect(() => {
-    const openViewer = () => setShowPdfViewer(true);
+    const openViewer = () => {
+      if (getLastTa5500Hits()?.hits.length) setShowPdfViewer(true);
+    };
     window.addEventListener("ta5500-hits-changed", openViewer);
     return () => window.removeEventListener("ta5500-hits-changed", openViewer);
   }, []);

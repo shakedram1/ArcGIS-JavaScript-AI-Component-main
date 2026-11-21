@@ -331,6 +331,8 @@ When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122
 
 Other agents (data exploration, layer creation, MCP passthrough, help) stay available; the passthrough agent does not take plan questions in TA5500 mode.
 
+**PDF viewer.** Plan search hits open the viewer and highlight their chunks. `public/ta5500/chunks.json` is exported from the RAG's `bundle/chunks.parquet`; regenerate it after rebuilding the bundle using `python -m pipeline.export_pdf_chunks` in the RAG repository. Deploy it with the same PDF used to generate the boxes. Restart the TA5500 MCP server in the hub after changing its wrapper.
+
 **Focus.** A plan answer sets the map focus (a place plus highlighted layers). A chip "מיקוד: …" with an X appears in the assistant panel while a focus is active. The focus is cleared by the chip, by asking ("נקה מיקוד", "אפס את המפה"), or by "שיחה חדשה"; clearing restores layer visibility and filters.
 
 **Routing trace.** Open the app with `?mode=edit`: the chat shows "Executing registered agent: <name>" for each request, so you can see which agent was picked. The trace prints the agent's name, not its id:

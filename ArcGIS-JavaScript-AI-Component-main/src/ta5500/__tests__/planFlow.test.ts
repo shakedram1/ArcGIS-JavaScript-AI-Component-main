@@ -17,6 +17,7 @@ import {
   placeTextStep,
   placesByName,
   planCatalogUids,
+  planViewerHits,
   REQUEST_FAILED_SUMMARY,
   unplannedAreaCode,
   useStoredPlace,
@@ -86,6 +87,21 @@ test("answerContext passes the RAG text with its band line; adds one only when m
   assert.equal(answerContext(r), r.text);
   assert.ok(answerContext(r).startsWith("רמת התאמה: התאמה גבוהה"));
   assert.ok(answerContext({ ...r, text: "[1] x", band: "low" }).startsWith("רמת התאמה: התאמה נמוכה\n\n[1] x"));
+});
+
+test("planViewerHits preserves ranked structured IDs and supports the legacy text marker", () => {
+  const result = searchResult();
+  const hit = result.hits[0];
+  assert.deepEqual(planViewerHits({
+    ...result,
+    hits: [{ ...hit, chunk_id: "4.3" }, { ...hit, chunk_id: undefined }, { ...hit, chunk_id: "5.4[5]" }],
+  }), [{ id: "4.3" }, { id: "5.4[5]" }]);
+  assert.deepEqual(planViewerHits({
+    ...result,
+    hits: [],
+    text: 'context\n<!--ta5500-hits:[{"id":"4.3","p":65,"s":0.75}]-->',
+  }), [{ id: "4.3", p: 65, s: 0.75 }]);
+  assert.deepEqual(planViewerHits({ ...result, hits: [], text: "no hits" }), []);
 });
 
 test("candidateLayers merges cited sections with override zone types", () => {

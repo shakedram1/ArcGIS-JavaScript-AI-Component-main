@@ -887,6 +887,7 @@ arcgis-map.ds-map {
 
 .pdf-window__chips {
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
   padding: 0 10px 6px;
   overflow-x: auto;
@@ -895,8 +896,8 @@ arcgis-map.ds-map {
 }
 
 .pdf-window__viewer {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 1 80px;
+  min-height: 80px;
   overflow: auto;
   background: #8a93a3;
 }
@@ -982,10 +983,11 @@ arcgis-map.ds-map {
 }
 .pdf-box--est { border-style: dashed; }
 
-.pdf-window__details { padding: 6px 10px 8px; border-top: 1px solid var(--calcite-color-border-3, #cfd4dc); }
+.pdf-window__details { display: flex; flex-direction: column; min-height: 0; padding: 6px 10px 8px; border-top: 1px solid var(--calcite-color-border-3, #cfd4dc); }
 .pdf-window__meta { font-size: 0.8rem; color: var(--calcite-color-text-3, #6b6b6b); }
 .pdf-window__text {
   margin-top: 4px;
+  min-height: 0;
   max-height: 96px;
   overflow: auto;
   white-space: pre-wrap;

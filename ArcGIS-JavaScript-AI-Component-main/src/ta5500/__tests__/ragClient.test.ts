@@ -19,6 +19,26 @@ test("parses structured search", () => {
   assert.equal(typeof r.hits[0].heading_path, "string");
 });
 
+test("parses RAG hit identifiers and page ranges from structured content", () => {
+  const r = parseSearchPlanResult({
+    content: [{ type: "text", text: "plan context" }],
+    structuredContent: {
+      band: "high",
+      location: { areas: ["703"], subareas: [], zone_types: [], entities: [] },
+      hits: [
+        { chunk_id: "4.3", citation: "4.3", page_start: 65, page_end: 65, heading_path: ["chapter", "section"], via: "heading" },
+        { chunk_id: "5.4[155]", citation: "5.4", page_start: 111, page_end: 112, heading_path: [], via: "location" },
+        { chunk_id: "unknown", citation: "", page_start: null, page_end: null, heading_path: [], via: "search" },
+      ],
+    },
+  });
+  assert.equal(r.text, "plan context");
+  assert.equal(r.band, "high");
+  assert.deepEqual(r.location.areas, ["703"]);
+  assert.deepEqual(r.hits.map((hit) => [hit.chunk_id, hit.pages]), [["4.3", "65"], ["5.4[155]", "111-112"], ["unknown", ""]]);
+  assert.equal(r.hits[0].heading_path, "chapter > section");
+});
+
 test("isError throws PlanServiceError", () => {
   assert.throws(
     () => parseSearchPlanResult({ isError: true, content: [{ type: "text", text: "x" }] }),

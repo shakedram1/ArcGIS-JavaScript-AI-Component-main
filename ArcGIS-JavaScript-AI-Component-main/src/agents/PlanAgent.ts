@@ -8,6 +8,7 @@ import { fromJSON as geometryFromJSON } from "@arcgis/core/geometry/support/json
 import { z } from "zod";
 import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
 import { getPlanLocations, searchPlan } from "../ta5500/ragClient";
+import { setLastTa5500Hits } from "../utils/assistantState";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "../ta5500/types";
 import { matchTopicOverrides, TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
 import { validateRequest } from "../ta5500/planLogic";
@@ -48,6 +49,7 @@ import {
   placeTextStep,
   planCatalogUids,
   planPlaceNote,
+  planViewerHits,
   unplannedAreaCode,
   useStoredPlace,
 } from "../ta5500/planFlow";
@@ -218,7 +220,10 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
 
     async function search(s: S) {
       try {
-        return { result: await searchPlan(baseUrl, s.question, s.filters) };
+        const result = await searchPlan(baseUrl, s.question, s.filters);
+        const hits = planViewerHits(result);
+        setLastTa5500Hits(hits);
+        return { result };
       } catch (err) {
         return { done: true, ...failure(err) };
       }

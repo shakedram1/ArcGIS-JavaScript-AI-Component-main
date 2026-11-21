@@ -11,7 +11,7 @@ export type PlanLocations = {
   gis_codes: GisCode[];
 };
 
-export type PlanHit = { citation: string; pages: string; via: string; heading_path: string };
+export type PlanHit = { chunk_id?: string; citation: string; pages: string; via: string; heading_path: string };
 
 export type PlanSearchResult = {
   text: string;

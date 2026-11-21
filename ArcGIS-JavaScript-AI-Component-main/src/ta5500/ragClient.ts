@@ -32,12 +32,18 @@ export function parseSearchPlanResult(r: McpToolResult): PlanSearchResult {
   const sc: any = r.structuredContent && typeof r.structuredContent === "object" ? r.structuredContent : {};
   const loc = sc.location ?? {};
   const hits: PlanHit[] = Array.isArray(sc.hits)
-    ? sc.hits.map((h: any) => ({
-        citation: String(h?.citation ?? ""),
-        pages: String(h?.pages ?? ""),
-        via: String(h?.via ?? ""),
-        heading_path: Array.isArray(h?.heading_path) ? h.heading_path.join(" > ") : String(h?.heading_path ?? ""),
-      }))
+    ? sc.hits.map((h: any) => {
+        const start = h?.page_start;
+        const end = h?.page_end;
+        const pages = h?.pages ?? (start == null ? "" : end != null && end !== start ? `${start}-${end}` : start);
+        return {
+          ...(typeof h?.chunk_id === "string" ? { chunk_id: h.chunk_id } : {}),
+          citation: String(h?.citation ?? ""),
+          pages: String(pages),
+          via: String(h?.via ?? ""),
+          heading_path: Array.isArray(h?.heading_path) ? h.heading_path.join(" > ") : String(h?.heading_path ?? ""),
+        };
+      })
     : [];
   return {
     text,
