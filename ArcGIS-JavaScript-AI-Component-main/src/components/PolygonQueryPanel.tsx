@@ -21,11 +21,14 @@ interface PolygonQueryPanelProps {
 export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, children }: PolygonQueryPanelProps) {
   const controllerRef = useRef<PolygonGroupQueryController | null>(null);
   const [drawing, setDrawing] = useState(false);
+  const [polygonExists, setPolygonExists] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PolygonQueryResult | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
-  // Layer visibility is mutated on the map; this just forces a re-render of the checkboxes.
+  const [minimized, setMinimized] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
 
   const runExport = async () => {
@@ -37,6 +40,7 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
       await controller.exportInfoSheet((msg) => setExporting(msg));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setMinimized(false);
     } finally {
       setExporting(null);
     }
@@ -48,13 +52,20 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
     const controller = new PolygonGroupQueryController(
       view,
       (r) => {
-        setResult(r);
+        const displayResult = controller.getDisplayResult(r);
+        const nextVisibility = controller.getVisibility();
+        setResult(displayResult);
         setError(null);
-        setVisibility(Object.fromEntries(r.groups.flatMap((g) => g.layers.map((l) => [l.id, l.visible]))));
+        setVisibility(nextVisibility);
       },
       setBusy,
-      setError,
+      (message) => {
+        setError(message);
+        setMinimized(false);
+      },
       setDrawing,
+      (key, visible) => setVisibility((prev) => ({ ...prev, [key]: visible })),
+      setPolygonExists,
     );
     controllerRef.current = controller;
 
@@ -64,6 +75,8 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
       setResult(null);
       setDrawing(false);
       setBusy(false);
+      setMinimized(false);
+      setPosition(null);
     };
   }, [isMapReady, webMapId, mapElementRef]);
 
@@ -75,6 +88,7 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
   }, [result]);
 
   const handleDraw = () => {
+    setMinimized(false);
     setResult(null);
     setError(null);
     if (drawing) controllerRef.current?.cancelDrawing();
@@ -86,6 +100,7 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
     setResult(null);
     setError(null);
     setDrawing(false);
+    setMinimized(false);
   };
 
   const toggleLayer = (id: string, visible: boolean) => {
@@ -93,7 +108,34 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
     setVisibility((prev) => ({ ...prev, [id]: visible }));
   };
 
+  const toggleGroup = (key: string, visible: boolean) => {
+    controllerRef.current?.setGroupVisible(key, visible);
+    setVisibility((prev) => ({ ...prev, [key]: visible }));
+  };
+
+  const onHeaderPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("calcite-action, button")) return;
+    const panel = event.currentTarget.parentElement;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    dragRef.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onHeaderPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    setPosition({
+      left: Math.max(0, Math.min(event.clientX - dragRef.current.dx, window.innerWidth - 140)),
+      top: Math.max(0, Math.min(event.clientY - dragRef.current.dy, window.innerHeight - 48)),
+    });
+  };
+
   const working = busy || !!exporting;
+  const drawLabel = drawing
+    ? "ביטול שרטוט"
+    : polygonExists
+      ? minimized ? "הצגת תוצאות השרטוט" : "מזעור תוצאות השרטוט"
+      : "שרטוט גבול תכנית לבדיקה";
   const exportLabel = result?.mode === "manual"
     ? "הפקת דף מידע מתארי"
     : "הפקת דף מידע מתארי: יש לשרטט גבול תחילה";
@@ -102,13 +144,14 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
     <>
       {children(
         <>
-          <div slot="top-left" className="pdf-toggle">
+          <div slot="top-left" className={`pdf-toggle pq-draw-toggle${polygonExists ? " pq-draw-toggle--active" : ""}`}>
             <calcite-action
               icon={drawing ? "x" : "polygon"}
-              text={drawing ? "ביטול שרטוט" : "שרטוט גבול תכנית לבדיקה"}
-              title={drawing ? "ביטול שרטוט" : "שרטוט גבול תכנית לבדיקה"}
-              disabled={!isMapReady || working ? true : undefined}
-              onClick={handleDraw}
+              text={drawLabel}
+              title={drawLabel}
+              aria-expanded={polygonExists ? !minimized : undefined}
+              disabled={!isMapReady || (working && !polygonExists) ? true : undefined}
+              onClick={() => polygonExists ? setMinimized((value) => !value) : handleDraw()}
             />
           </div>
           <div slot="top-left" className="pdf-toggle">
@@ -128,12 +171,25 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
         </>,
       )}
       {isMapReady && (drawing || busy || exporting || error || result) && (
-        <div className="pq-panel" dir="rtl">
-          {(result || error) && (
-            <calcite-button appearance="outline" kind="neutral" icon-start="trash" disabled={working ? true : undefined} onClick={handleClear}>
-              ניקוי
-            </calcite-button>
-          )}
+        <div className="pq-panel" dir="rtl" hidden={minimized} style={position ? { position: "fixed", left: position.left, top: position.top, bottom: "auto" } : undefined}>
+          <div
+            className="pq-header"
+            onPointerDown={onHeaderPointerDown}
+            onPointerMove={onHeaderPointerMove}
+            onPointerUp={() => { dragRef.current = null; }}
+            onPointerCancel={() => { dragRef.current = null; }}
+          >
+            <span>בדיקת הוראות התכנית</span>
+            {polygonExists && (
+              <calcite-action icon="polygon" text="שרטוט גבול חדש" title="שרטוט גבול חדש" scale="s" disabled={working ? true : undefined} onClick={handleDraw} />
+            )}
+            {(result || error) && (
+              <calcite-action icon="trash" text="ניקוי שרטוט" title="ניקוי שרטוט" scale="s" disabled={working ? true : undefined} onClick={handleClear} />
+            )}
+            {polygonExists && (
+              <calcite-action icon="chevron-down" text="מזעור תוצאות השרטוט" title="מזעור תוצאות השרטוט" scale="s" onClick={() => setMinimized(true)} />
+            )}
+          </div>
 
           {drawing && <p className="pq-hint">ניתן להוסיף קודקודים בלחיצה על המפה. לחיצה כפולה מסיימת את הפוליגון.</p>}
           {busy && <p className="pq-hint">מתבצעת שאילתה מרחבית (באפר {QUERY_BUFFER_METERS} מ׳)…</p>}
@@ -150,19 +206,36 @@ export function PolygonQueryPanel({ mapElementRef, isMapReady, webMapId, childre
                   <summary>
                     {g.label}
                     {g.found && <span className="pq-badge">{g.layers.filter((l) => l.count > 0).length}</span>}
+                    {g.found && (
+                      <calcite-action
+                        icon={visibility[g.key] ? "view-visible" : "view-hide"}
+                        text={`${visibility[g.key] ? "הסתרת" : "הצגת"} ${g.label}`}
+                        title={`${visibility[g.key] ? "הסתרת" : "הצגת"} ${g.label}`}
+                        scale="s"
+                        disabled={working ? true : undefined}
+                        onClick={(event: React.MouseEvent) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          toggleGroup(g.key, !visibility[g.key]);
+                        }}
+                      />
+                    )}
                   </summary>
                   {!g.found && <p className="pq-empty">לא נמצאה קבוצת שכבות בשם זה במפה</p>}
                   {g.found && g.layers.length === 0 && <p className="pq-empty">אין שכבות בקבוצה</p>}
                   {g.layers.map((l) => (
-                    <label key={l.id} className={`pq-layer${l.count === 0 ? " pq-layer--none" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={visibility[l.id] ?? false}
-                        onChange={(e) => toggleLayer(l.id, e.target.checked)}
-                      />
+                    <div key={l.id} className={`pq-layer${l.count === 0 ? " pq-layer--none" : ""}`}>
                       <span className="pq-layer-title">{l.title}</span>
                       <span className="pq-count">{l.count}</span>
-                    </label>
+                      <calcite-action
+                        icon={visibility[l.id] ? "view-visible" : "view-hide"}
+                        text={`${visibility[l.id] ? "הסתרת" : "הצגת"} ${l.title}`}
+                        title={`${visibility[l.id] ? "הסתרת" : "הצגת"} ${l.title}`}
+                        scale="s"
+                        disabled={working ? true : undefined}
+                        onClick={() => toggleLayer(l.id, !visibility[l.id])}
+                      />
+                    </div>
                   ))}
                 </details>
               ))}

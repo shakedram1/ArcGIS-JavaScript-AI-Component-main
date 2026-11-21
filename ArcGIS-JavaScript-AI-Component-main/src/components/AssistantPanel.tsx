@@ -18,21 +18,19 @@ export const ASSISTANT_DESCRIPTION = "תחקור שכבות ומסמך תוכנ�
 // strip above the chat (see ds-eyebrow below). The previous text is kept, commented out.
 // const ASSISTANT_HEADING = "עוזר אישי לרשותך לתחקור שכבות ומסמך תוכנית המתאר תא/5500";
 const ASSISTANT_HEADING = "התחל שיחה חדשה";
-// nb_changed 2026-11-16: new welcome message (two paragraphs separated by \n\n) introducing the TA5500 assistant.
-// The previous text is kept below, commented out.
-// const ASSISTANT_ENTRY_MESSAGE =
-//   "שלום! אני יכול לעזור לך לסייר ולנתח את נתוני המפה.\n\nנסה לשאול על שכבות, סטטיסטיקות, או לנווט לכל מיקום.";
-const ASSISTANT_ENTRY_MESSAGE =
-  "שלום! אני העוזר החכם לתוכנית המתאר תא/5500. אני משלב בין תשריטי התוכנית, המוצגים במפה, ובין הוראות התוכנית, אותן ניתן לתשאל דרכי.";
-// The first chat message: a real assistant message at the top of the conversation (not the built-in entry notice, which is a
-// closable info pop-up that disappears after the first question).
-const ASSISTANT_FIRST_MESSAGE =
-  "שלום! אני העוזר החכם לתוכנית המתאר תא/5500. אני משלב בין תשריטי התוכנית, המוצגים במפה, ובין הוראות התוכנית, אותן ניתן לתשאל דרכי.";
+const WELCOME_GREETING = "שלום! אני העוזר החכם לתוכנית המתאר תא/5500.";
+const WELCOME_PARTS = [
+  "ניתן לעיין בהוראות התכנית בלחצן",
+  "ובתשריטי התכנית המוצגים במפה, ולשאול אותי שאלות על התכנית.",
+  "כמו כן, ניתן לשרטט גבול לבדיקת הוראות התכנית באזור מסוים",
+  'ולהפיק ממנו "דף מידע מתארי"',
+];
+const ASSISTANT_FIRST_MESSAGE = `${WELCOME_GREETING}\n\n${WELCOME_PARTS[0]} ${WELCOME_PARTS[1]}\n${WELCOME_PARTS[2]}\n${WELCOME_PARTS[3]}`;
 const ASSISTANT_FIRST_MESSAGE_ID = "ta5500-welcome";
 const ASSISTANT_SUGGESTED_PROMPTS = [
   "אילו שכבות יש במפה?",
-  "כמה ישויות יש בשכבה הראשונה?",
-  "מה אני יכול לשאול אותך?",
+  "מה הוראות התכנית לאזור תכנון 301?",
+  "תמצא לי את סעיף 5.4 בהוראות התכנית",
 ];
 
 interface AssistantElement extends HTMLElement {
@@ -47,7 +45,31 @@ interface AssistantElement extends HTMLElement {
   messages?: {
     length: number;
     push: (message: { id: string; role: "assistant"; blocks: { type: "text"; data: { content: string } }[] }) => unknown;
+    on: (event: "change", callback: () => void) => { remove: () => void };
   };
+}
+
+function WelcomeMessage() {
+  const iconStyle: React.CSSProperties = { verticalAlign: "middle" };
+  return (
+    <span dir="rtl">
+      {WELCOME_GREETING}<br /><br />
+      {WELCOME_PARTS[0]}{" "}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" role="img" aria-label="הוראות תכנית המתאר" style={iconStyle}>
+        <path d="M4.5 2.5h11l4 4v15h-15zM15.5 2.5v4h4" />
+        <path d="M7.5 10h9M7.5 13.5h9M7.5 17h9" />
+      </svg>{" "}
+      {WELCOME_PARTS[1]}<br />
+      {WELCOME_PARTS[2]}{" "}
+      <calcite-icon icon="polygon" scale="s" text-label="שרטוט גבול" style={iconStyle} /><br />
+      {WELCOME_PARTS[3]}{" "}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" role="img" aria-label="הפקת דף מידע מתארי" style={iconStyle}>
+        <path d="M4.5 2.5h11l4 4v15h-15zM15.5 2.5v4h4" />
+        <circle cx="12" cy="10" r="0.8" fill="currentColor" stroke="none" />
+        <path d="M12 12v5" strokeWidth="1.5" />
+      </svg>
+    </span>
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -104,6 +126,7 @@ export function AssistantPanel({
   const resizeRef = useRef<{ x: number; width: number } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState<number>();
+  const [entryVisible, setEntryVisible] = useState(true);
   const minWidth = () => Math.min(280, Math.max(0, window.innerWidth - 72));
   const maxWidth = () => Math.max(minWidth(), window.innerWidth - 72);
   const clampWidth = (value: number) => Math.min(Math.max(value, minWidth()), maxWidth());
@@ -128,7 +151,7 @@ export function AssistantPanel({
     if (!el) return;
     el.heading = ASSISTANT_HEADING;
     el.description = ASSISTANT_DESCRIPTION;
-    el.entryMessage = ASSISTANT_ENTRY_MESSAGE;
+    el.entryMessage = undefined;
     el.suggestedPrompts = ASSISTANT_SUGGESTED_PROMPTS;
     el.logEnabled = logEnabled;
     // 5.1: shows the blue assistant icon next to each reply (drawn outside the bubble, see assistantStyler.ts)
@@ -169,6 +192,23 @@ export function AssistantPanel({
       el?.removeEventListener("arcgisReady", onReady);
     };
   }, [webMapId, mcpHubRefreshToken, logEnabled, isMapReady, mapLoadError]);
+
+  useEffect(() => {
+    const el = assistantRef.current;
+    if (!el) return;
+    let active = true;
+    let handle: { remove: () => void } | undefined;
+    void customElements.whenDefined("arcgis-assistant").then(() => {
+      if (!active || !el.messages) return;
+      const updateVisibility = () => setEntryVisible(el.messages?.length === 0);
+      handle = el.messages.on("change", updateVisibility);
+      updateVisibility();
+    });
+    return () => {
+      active = false;
+      handle?.remove();
+    };
+  }, [webMapId, mcpHubRefreshToken, isMapReady, mapLoadError]);
 
   const handleNewChat = async () => {
     await assistantRef.current?.clearChatHistory?.();
@@ -265,6 +305,12 @@ export function AssistantPanel({
                         ["--app-chat-panel-border" as string]: chatPanelBorderColor,
                       } as React.CSSProperties}
                     >
+                      {entryVisible && (
+                        <calcite-notice slot="entry-message" open kind="brand" closable icon width="full">
+                          <div slot="message"><WelcomeMessage /></div>
+                        </calcite-notice>
+                      )}
+                      <div slot={`block-${ASSISTANT_FIRST_MESSAGE_ID}-0`}><WelcomeMessage /></div>
                       <calcite-action
                         slot="header-actions-end"
                         icon="reset"

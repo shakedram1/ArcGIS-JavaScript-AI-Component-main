@@ -63,6 +63,8 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         slot="top-left"
         expand-icon="layers"
         collapse-icon="x"
+        expand-tooltip="שכבות"
+        collapse-tooltip="שכבות"
       >
         <arcgis-layer-list />
       </arcgis-expand>
@@ -71,6 +73,8 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         slot="top-left"
         expand-icon="legend"
         collapse-icon="x"
+        expand-tooltip="מקרא"
+        collapse-tooltip="מקרא"
       >
         <arcgis-legend />
       </arcgis-expand>
@@ -79,6 +83,8 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         slot="top-left"
         expand-icon="basemap"
         collapse-icon="x"
+        expand-tooltip="מפת בסיס"
+        collapse-tooltip="מפת בסיס"
       >
         <arcgis-basemap-gallery />
       </arcgis-expand>
@@ -102,6 +108,8 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         slot="top-left"
         expand-icon="measure-line"
         collapse-icon="x"
+        expand-tooltip="מדידת מרחק"
+        collapse-tooltip="מדידת מרחק"
       >
         <arcgis-distance-measurement-2d unit="metric" />
       </arcgis-expand>
@@ -110,6 +118,8 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, 
         slot="top-left"
         expand-icon="measure-area"
         collapse-icon="x"
+        expand-tooltip="מדידת שטח"
+        collapse-tooltip="מדידת שטח"
       >
         <arcgis-area-measurement-2d unit="metric" />
       </arcgis-expand>

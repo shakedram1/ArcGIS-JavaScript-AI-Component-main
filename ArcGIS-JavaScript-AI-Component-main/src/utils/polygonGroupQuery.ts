@@ -200,6 +200,7 @@ export class PolygonGroupQueryController {
   /** Sublayer ids are only unique per service, so results reference leaves by a generated key. */
   private leafByKey = new Map<string, AnyLayer>();
   private groupLayerByKey = new Map<string, AnyLayer>();
+  private visibilityHandles: { remove: () => void }[] = [];
   private boundaryLayerByKey = new Map<string, AnyLayer>();
   private analysis: { polygon: Polygon; buffer: Polygon; mode: AnalysisMode; result: PolygonQueryResult } | null = null;
   /** In view.graphics: they render above every layer, including ones added later. */
@@ -211,6 +212,8 @@ export class PolygonGroupQueryController {
     private readonly onBusy: (busy: boolean) => void,
     private readonly onError: (message: string) => void,
     private readonly onDrawing: (drawing: boolean) => void,
+    private readonly onVisibility: (key: string, visible: boolean) => void,
+    private readonly onPolygonChange: (exists: boolean) => void,
   ) {
     this.view = view;
     this.sketchLayer = new GraphicsLayer({ id: "polygon-query-sketch", listMode: "hide" });
@@ -226,6 +229,7 @@ export class PolygonGroupQueryController {
       if (event.state === "cancel") {
         this.onDrawing(false);
       } else if (event.state === "complete") {
+        this.onPolygonChange(true);
         this.onDrawing(false);
         void this.analyze(event.graphic.geometry as Polygon, "manual");
       }
@@ -255,6 +259,9 @@ export class PolygonGroupQueryController {
   /** Remove graphics, filters, and restore layer visibility to what it was before. */
   clear(): void {
     this.runId++;
+    this.onPolygonChange(false);
+    this.visibilityHandles.forEach((handle) => handle.remove());
+    this.visibilityHandles = [];
     this.sketchVM.cancel();
     this.sketchLayer.removeAll();
     this.view.graphics.removeMany(this.resultGraphics);
@@ -294,6 +301,40 @@ export class PolygonGroupQueryController {
     const layer = this.leafByKey.get(layerId);
     if (!layer) return;
     this.setVisible(layer, visible);
+  }
+
+  setGroupVisible(groupKey: string, visible: boolean): void {
+    const group = this.groupLayerByKey.get(groupKey);
+    if (group) this.setVisible(group, visible);
+  }
+
+  getVisibility(): Record<string, boolean> {
+    return Object.fromEntries(
+      [...this.groupLayerByKey, ...this.leafByKey].map(([key, layer]) => [key, !!layer.visible]),
+    );
+  }
+
+  /** Present the queried layers in the same order as the map's layer list. */
+  getDisplayResult(result: PolygonQueryResult): PolygonQueryResult {
+    const order = new Map<AnyLayer, number>();
+    const walk = (layers: AnyLayer[]) => {
+      for (const layer of [...layers].reverse()) {
+        order.set(layer, order.size);
+        walk(childrenOf(layer));
+      }
+    };
+    walk(toArray(this.view.map.layers));
+    const indexOf = (layer: AnyLayer) => order.get(layer) ?? Infinity;
+    const groups = result.groups.map((group) => {
+      const layer = this.groupLayerByKey.get(group.key);
+      return {
+        ...group,
+        label: layer?.title ?? group.label,
+        layers: [...group.layers].sort((a, b) => indexOf(this.leafByKey.get(a.id)) - indexOf(this.leafByKey.get(b.id))),
+      };
+    });
+    groups.sort((a, b) => indexOf(this.groupLayerByKey.get(a.key)) - indexOf(this.groupLayerByKey.get(b.key)));
+    return { ...result, groups };
   }
 
   private setVisible(layer: AnyLayer, visible: boolean): void {
@@ -439,6 +480,12 @@ export class PolygonGroupQueryController {
       }
       const result: PolygonQueryResult = { groups, mode };
       this.analysis = { polygon, buffer, mode, result };
+      for (const [key, layer] of [...this.groupLayerByKey, ...this.leafByKey]) {
+        this.visibilityHandles.push(reactiveUtils.watch(
+          () => !!layer.visible,
+          (visible) => this.onVisibility(key, visible),
+        ));
+      }
       this.onResult(result);
     } catch (err) {
       this.onError(err instanceof Error ? err.message : String(err));

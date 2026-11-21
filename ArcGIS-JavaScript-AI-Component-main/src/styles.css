@@ -807,6 +807,22 @@ arcgis-map.ds-map {
   z-index: var(--z-header);
   font-size: 14px;
 }
+.pq-header { display: flex; align-items: center; gap: 4px; cursor: grab; touch-action: none; }
+.pq-header:active { cursor: grabbing; }
+.pq-header > span { flex: 1; font-weight: 600; }
+.pq-draw-toggle { position: relative; }
+.pq-draw-toggle--active::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: #0079c1;
+  pointer-events: none;
+}
 .pq-hint { margin: 8px 0 4px; color: #555; font-size: 12px; }
 .pq-chip { display: inline-flex; align-items: stretch; border: 1px solid #c8c8c8; border-radius: 14px; background: #f0f0f0; color: #777; font-size: 13px; }
 .pq-chip button { display: inline-flex; align-items: center; padding: 2px 10px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
@@ -818,8 +834,11 @@ arcgis-map.ds-map {
 .pq-error { margin: 8px 0 0; color: #c0392b; }
 .pq-group { border-top: 1px solid #ddd; padding: 6px 0; }
 .pq-group > summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.pq-group > summary::before { content: ""; width: 6px; height: 6px; border-left: 1.5px solid; border-bottom: 1.5px solid; transform: rotate(45deg); }
+.pq-group[open] > summary::before { transform: rotate(-45deg); }
+.pq-group > summary > calcite-action { margin-inline-start: auto; }
 .pq-badge { background: #0079c1; color: #fff; border-radius: 999px; padding: 0 8px; font-size: 12px; }
-.pq-layer { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+.pq-layer { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
 .pq-layer--none { opacity: 0.5; }
 .pq-layer-title { flex: 1; }
 .pq-count { color: #666; font-size: 12px; }
