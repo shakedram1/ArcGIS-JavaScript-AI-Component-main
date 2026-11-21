@@ -9,6 +9,8 @@ import { z } from "zod";
 import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRuntime";
 import { getPlanLocations, searchPlan } from "../ta5500/ragClient";
 import { setLastTa5500Hits } from "../utils/assistantState";
+import { getActiveFocus, getFocusState, setFocusEnabled } from "../utils/focusStore";
+import { findClauseHit, loadTa5500ChunkIndex, regionsOf } from "../utils/ta5500Chunks";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "../ta5500/types";
 import { matchTopicOverrides, TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
 import { validateRequest } from "../ta5500/planLogic";
@@ -63,7 +65,9 @@ const resolveSchema = z.object({
   zone_types: z.array(z.string()),
   headings: z.array(z.string()),
   place: z.string().nullable(),
-  intent: z.enum(["answer", "refine_focus", "clear_focus"]),
+  intent: z.enum(["answer", "pdf_clause", "pdf_topic", "polygon_only", "refine_focus", "clear_focus"]),
+  pdfClause: z.string().nullable(),
+  polygonAction: z.enum(["none", "enable", "disable"]),
 });
 
 const answerSchema = z.object({
@@ -109,6 +113,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
       unplannedArea: last<string | null>(() => null),
       locations: last<PlanLocations | null>(() => null),
       result: last<PlanSearchResult | null>(() => null),
+      pdfOnly: last<boolean>(() => false),
       answer: last<string>(() => ""),
       usedItems: last<number[]>(() => []),
     });
@@ -116,17 +121,39 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
 
     async function resolve(s: S, config?: RunnableConfig) {
       try {
-        const { request, messages } = readAgentRequest(s);
+        const { request, userRequest, messages } = readAgentRequest(s);
         const r = await invokeStructuredPrompt({
           promptText: RESOLVE_PROMPT,
           inputVariables: {
             request: conversationText(messages, request),
-            currentFocus: focusStore.get()?.label ?? "none",
+            currentFocus: `${focusStore.get()?.label ?? "none"}; drawn polygon: ${getFocusState().polygon ? getFocusState().status : "none"}; polygon filter: ${getFocusState().enabled ? "on" : "off"}`,
           },
           schema: resolveSchema,
           temperature: 0,
           config,
         });
+
+        if (r.intent === "pdf_clause") {
+          const index = await loadTa5500ChunkIndex();
+          const hit = findClauseHit(index, r.pdfClause ?? "", userRequest || request);
+          if (!hit) {
+            return { done: true, ...agentResult({ output: "לא נמצא במסמך סעיף מזוהה עם מיקום להצגה. ניתן לציין מספר סעיף מדויק.", ok: true }) };
+          }
+          setLastTa5500Hits([hit]);
+          return { done: true, ...agentResult({ output: `הסעיף ${hit.id} מוצג במסמך.`, ok: true }) };
+        }
+
+        if (r.polygonAction === "disable") setFocusEnabled(false);
+        if (r.polygonAction === "enable") {
+          const polygon = getFocusState();
+          if (!polygon.polygon) return { done: true, ...agentResult({ output: "יש לשרטט פוליגון לפני השימוש בו כמסנן.", ok: true }) };
+          if (polygon.status !== "ready") return { done: true, ...agentResult({ output: "חישוב החיתוך של הפוליגון עדיין לא זמין. ניתן לנסות שוב לאחר השלמתו.", ok: true }) };
+          setFocusEnabled(true);
+        }
+        if (r.intent === "polygon_only") {
+          const output = r.polygonAction === "enable" ? "הפוליגון משמש כמסנן לשאילתות." : r.polygonAction === "disable" ? "הפוליגון אינו משמש עוד כמסנן לשאילתות." : "ניתן לציין אם להשתמש בפוליגון כמסנן.";
+          return { done: true, ...agentResult({ output, ok: true }) };
+        }
 
         if (r.intent === "clear_focus") {
           try {
@@ -144,6 +171,7 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
         }
 
         const question = r.question.trim() || request;
+        if (r.intent === "pdf_topic") return { question, pdfOnly: true };
         const locations = await getPlanLocations(baseUrl);
         const { filters: validated, dropped } = validateRequest(
           { areas: r.areas, entities: r.entities, zone_types: r.zone_types, headings: r.headings },
@@ -220,8 +248,25 @@ export function registerPlanAgent(assistant: HTMLElement, ctx: { baseUrl: string
 
     async function search(s: S) {
       try {
-        const result = await searchPlan(baseUrl, s.question, s.filters);
+        const polygon = getFocusState();
+        const focus = getActiveFocus();
+        if (polygon.enabled && (!focus || polygon.failed.length || polygon.truncated.length || !Object.values(focus.filters).some((values) => values.length))) {
+          return { done: true, ...agentResult({ output: "לא ניתן להחיל את מסנן הפוליגון: תוצאות החיתוך אינן זמינות או אינן מספיקות לחיפוש בתוכנית.", ok: true }) };
+        }
+        const result = await searchPlan(baseUrl, s.question, s.filters, focus ?? undefined);
         const hits = planViewerHits(result);
+        if (s.pdfOnly) {
+          const index = await loadTa5500ChunkIndex();
+          const located = hits.filter((hit) => {
+            const chunk = index.get(hit.id);
+            return chunk && regionsOf(chunk).length;
+          });
+          if (result.band === "low" || !located.length) {
+            return { done: true, ...agentResult({ output: "לא נמצא במסמך סעיף תואם בביטחון מספיק. ניתן לציין נושא מדויק יותר או מספר סעיף.", ok: true }) };
+          }
+          setLastTa5500Hits(located);
+          return { done: true, ...agentResult({ output: "הסעיפים המתאימים מוצגים במסמך.", ok: true }) };
+        }
         setLastTa5500Hits(hits);
         return { result };
       } catch (err) {

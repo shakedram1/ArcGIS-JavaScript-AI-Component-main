@@ -39,7 +39,7 @@ function visibleHubServers(servers: HubServerSummary[], ta5500Mode: boolean): Hu
 }
 
 function withModeSuffix(description: string, ta5500Mode: boolean): string {
-  return ta5500Mode ? `${description}\n${MCP_NOT_PLAN_SUFFIX}` : description;
+  return ta5500Mode ? `${description}\n${MCP_NOT_PLAN_SUFFIX}` : `${description}\n${MCP_POLYGON_DESCRIPTION}`;
 }
 
 interface ToolAliasMap {
@@ -348,8 +348,9 @@ const MCP_ROUTING_BASE_DESCRIPTION =
   "Use this when the answer depends on connected MCP tools, external services, or structured remote data rather than only what is already visible in the active map. " +
   "Prefer this agent whenever the answer is not already visible in the active map layers or current web map. " +
   "This agent already plots any geocodable results (points, addresses, areas) directly on the map as graphics with popups, as part of answering the question — it does not need a separate layer, FeatureServer, or map-editing agent to display or add its own results. " +
-  "Do not additionally select a map layer, data-exploration, or feature-layer-editing agent for the same request just because the user asked to see the results on the map or in a popup — this agent alone fully covers that. " +
-  // Descriptions are read once when the assistant starts, so this hint is static and only matters when a polygon is mentioned.
+  "Do not additionally select a map layer, data-exploration, or feature-layer-editing agent for the same request just because the user asked to see the results on the map or in a popup — this agent alone fully covers that.";
+
+const MCP_POLYGON_DESCRIPTION =
   "When the user refers to a polygon they selected or drew on the map (פוליגון שנבחר / שצויר) and asks about the master plan — תא/5500, תוכנית המתאר, הוראות, שימושים, זכויות בנייה, רח\"ק, גובה, ייעוד, אזור תכנון — or asks whether a polygon exists, to use it as a filter (להשתמש בפוליגון כמסנן), or to stop using it, use this agent, not data exploration: these are answered from the TA5500 RAG (search_plan) or the polygon filter tool, not from map layer attributes.";
 
 function buildDescriptionFromTools(tools: McpToolDef[], serverName: string, hubServers: HubServerSummary[] = []): string {

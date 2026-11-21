@@ -1,6 +1,8 @@
 // Client for the TA5500 RAG tools behind the MCP hub (namespaced ta5500__*). Node-safe: no DOM, no @arcgis/*.
 import { normalizeUrl } from "../agents/mcpAgentCore";
 import { callMcpToolRaw, extractText, isAbortLikeError, type McpToolResult } from "../utils/mcpClient";
+import { applyFocusToSearchArgs, type FocusFilters } from "../utils/focusFilters";
+import type { FocusNote } from "../utils/focusNotes";
 import type { PlanFilters, PlanHit, PlanLocations, PlanSearchResult } from "./types";
 
 export const PLAN_SERVICE_UNAVAILABLE = "שירות תוכנית המתאר אינו זמין כרגע. נסו שוב בעוד מספר דקות.";
@@ -81,13 +83,19 @@ async function callTool(endpointUrl: string, name: string, args: Record<string, 
   }
 }
 
-export async function searchPlan(endpointUrl: string, question: string, filters: PlanFilters = {}): Promise<PlanSearchResult> {
+export async function searchPlan(
+  endpointUrl: string,
+  question: string,
+  filters: PlanFilters = {},
+  focus?: { filters: FocusFilters; notes: FocusNote[] },
+): Promise<PlanSearchResult> {
   const args: Record<string, unknown> = {};
   if (question.trim()) args.question = question.trim();
   for (const [k, v] of Object.entries(filters)) {
     if (Array.isArray(v) && v.length) args[k] = v;
   }
-  return parseSearchPlanResult(await callTool(endpointUrl, SEARCH_TOOL, args));
+  const searchArgs = focus ? applyFocusToSearchArgs(args, focus.filters, focus.notes) : args;
+  return parseSearchPlanResult(await callTool(endpointUrl, SEARCH_TOOL, searchArgs));
 }
 
 const locationsCache = new Map<string, Promise<PlanLocations>>();

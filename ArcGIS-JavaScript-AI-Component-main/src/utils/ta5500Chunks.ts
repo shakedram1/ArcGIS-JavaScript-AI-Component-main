@@ -72,6 +72,15 @@ export function regionsOf(chunk: Ta5500Chunk): Ta5500Region[] {
   return chunk.regions_v2 ?? [];
 }
 
+/** Locate an explicitly requested clause without searching the plan. */
+export function findClauseHit(index: Map<string, Ta5500Chunk>, clause: string, request: string): Ta5500Hit | null {
+  const id = clause.trim();
+  const mentioned: string[] = request.match(/\d+(?:\.\d+)*(?:\([א-תa-z\d]+\))?/gi) ?? [];
+  if (!mentioned.includes(id)) return null;
+  const chunk = index.get(id);
+  return chunk && regionsOf(chunk).length ? { id } : null;
+}
+
 let chunkIndexPromise: Promise<Map<string, Ta5500Chunk>> | null = null;
 
 /** Loads /ta5500/chunks.json once and returns a chunk_id -> chunk map. A failed load is not cached, so a retry can succeed. */

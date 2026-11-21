@@ -93,6 +93,22 @@ test("searchPlan calls ta5500__search_plan with the question and non-empty filte
   }
 });
 
+test("searchPlan applies the active polygon filters and notes without replacing explicit filters", async () => {
+  const hub = stubHub(() => fixture("search-plan.json"));
+  const notes = [{ text: "note", layer: "layer", code: "1", priority: 1 as const, weight: 0.5 }];
+  try {
+    await searchPlan("/api/mcp-polygon-test", "מה מותר?", { zone_types: ["3.4"] }, {
+      filters: { areas: ["703"], zone_types: ["3.3"], entities: [], headings: [] },
+      notes,
+    });
+    assert.deepEqual(hub.calls[0].args, {
+      question: "מה מותר?", areas: ["703"], zone_types: ["3.4"], focus_notes: notes,
+    });
+  } finally {
+    hub.restore();
+  }
+});
+
 test("getPlanLocations calls ta5500__get_plan_locations once per session", async () => {
   const hub = stubHub(() => fixture("locations.json"));
   try {

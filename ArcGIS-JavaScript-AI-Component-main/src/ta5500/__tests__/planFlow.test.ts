@@ -36,10 +36,25 @@ import {
 } from "../planFlow";
 import type { PlanLocations } from "../types";
 import type { Place } from "../focus";
+import { findClauseHit, type Ta5500Chunk } from "../../utils/ta5500Chunks";
 
 const fixtureJson = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const loc: PlanLocations = JSON.parse(fixtureJson("locations.json").content[0].text);
 const searchResult = () => parseSearchPlanResult(fixtureJson("search-plan.json"));
+
+test("clause navigation requires the exact requested ID and a PDF location", () => {
+  const region = { pdf_page: 28, x0: 0, y0: 0, x1: 1, y1: 1, page_w: 10, page_h: 10 };
+  const rows: Ta5500Chunk[] = [
+    { chunk_id: "3.3", regions: [region] },
+    { chunk_id: "3.3.2", regions: [region] },
+    { chunk_id: "4.3", regions: [] },
+  ];
+  const index = new Map(rows.map((row) => [row.chunk_id, row]));
+  assert.deepEqual(findClauseHit(index, "3.3.2", "הצג את סעיף 3.3.2"), { id: "3.3.2" });
+  assert.equal(findClauseHit(index, "3.3", "הצג את סעיף 3.3.2"), null);
+  assert.equal(findClauseHit(index, "4.3", "הצג את סעיף 4.3"), null);
+  assert.equal(findClauseHit(index, "9.9", "הצג את סעיף 9.9"), null);
+});
 
 test("conversationText keeps user/assistant turns, drops tool turns, ends with the request", () => {
   const msgs = [

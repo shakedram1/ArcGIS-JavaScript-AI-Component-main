@@ -11,6 +11,8 @@ import { registerAddLayerToMapAgent } from "../agents/AddLayerToMapAgent";
 import { registerPlanAgent } from "../agents/PlanAgent";
 import { registerTa5500MapAgent } from "../agents/Ta5500MapAgent";
 import { registerScopeAgent } from "../agents/ScopeAgent";
+import { excludeServerTools } from "../agents/mcpAgentCore";
+import { clearMcpCaches, listMcpTools } from "../utils/mcpClient";
 
 // data-agent-id values of the agents registered only in TA5500 mode. Their
 // elements are removed when TA5500 mode ends so they never linger on another map.
@@ -84,6 +86,7 @@ export function useAssistantSetup(
     if (!webMapId || !isMapReady) return;
     const assistant = document.querySelector("arcgis-assistant") as HTMLElement | null;
     if (!assistant) return;
+    let disposed = false;
 
     // One list, one flag per agent (spec §7): any agent can be switched off
     // in TA5500 mode by changing its `enabled` expression.
@@ -92,7 +95,7 @@ export function useAssistantSetup(
       { id: "manage-feature-layer-agent", enabled: true, register: registerManageFeatureLayerAgent },
       { id: "add-layer-to-map-agent", enabled: true, register: registerAddLayerToMapAgent },
       { id: "all-capabilities-agent", enabled: true, register: registerFeatureLayerCapabilitiesAgent },
-      { id: "mcp-passthrough-agent", enabled: true, register: (a) => registerMcpPassthroughAgent(a, { baseUrl: mcpBaseUrl, serverName: "MCP Hub", ta5500Mode: isTa5500 }) },
+      { id: "mcp-passthrough-agent", enabled: !isTa5500, register: (a) => registerMcpPassthroughAgent(a, { baseUrl: mcpBaseUrl, serverName: "MCP Hub", ta5500Mode: false }) },
       { id: "ta5500-plan", enabled: isTa5500, register: (a) => registerPlanAgent(a, { baseUrl: mcpBaseUrl }) },
       { id: "ta5500-map", enabled: isTa5500, register: (a) => registerTa5500MapAgent(a, { baseUrl: mcpBaseUrl }) },
       { id: "ta5500-scope", enabled: isTa5500, register: registerScopeAgent },
@@ -107,8 +110,23 @@ export function useAssistantSetup(
     if (registrations.some((r) => r.id === "mcp-passthrough-agent" && r.enabled)) {
       void refreshMcpAgentDescription(assistant);
     }
+    if (isTa5500) {
+      void (async () => {
+        try {
+          clearMcpCaches(mcpBaseUrl);
+          const tools = await listMcpTools(mcpBaseUrl);
+          if (disposed || !excludeServerTools(tools, ["ta5500"]).length) return;
+        } catch (error) {
+          if (disposed) return;
+          console.warn("MCP tool discovery failed:", error);
+        }
+        registerMcpPassthroughAgent(assistant, { baseUrl: mcpBaseUrl, serverName: "MCP Hub", ta5500Mode: true });
+        void refreshMcpAgentDescription(assistant);
+      })();
+    }
 
     return () => {
+      disposed = true;
       if (isTa5500) removeAgentElements(assistant, TA5500_AGENT_IDS);
     };
   }, [webMapId, isMapReady, mcpHubRefreshToken, oauthClientId, portalUrl, mcpBaseUrl, isTa5500]);
