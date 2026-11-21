@@ -9,7 +9,7 @@ import systematicsLogo from "../assets/logos/systematics-logo.png";
 // nb_changed 2026-11-16: credits line shown under the title: a label plus the names of the students who worked on the project
 // (in the order they were given).
 const CREDITS_LABEL = "הפרויקט בוצע על ידי:";
-const STUDENT_NAMES = ["אור גור", "עידו לוטן", "יותם שביט", "רונן גלמנוביץ'", "אסף ארנברג", "שקד רם", "נחמה בריקנר"];
+const STUDENT_NAMES = ["אור גור", "יותם שביט", "רונן גלמנוביץ'", "אסף ארנברג", "שקד רם", "נחמה בריקנר"];
 
 const mcpIconStyle: React.CSSProperties = {
   width: "22px",
