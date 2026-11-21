@@ -5,6 +5,7 @@ interface MapViewProps {
   mapElementRef: React.RefObject<HTMLElement & Record<string, unknown>>;
   homeElementRef: React.RefObject<HTMLElement & Record<string, unknown>>;
   onTogglePdf: () => void; // nb_changed 2026-11-16: opens/closes the TA5500 PDF viewer window
+  children?: React.ReactNode;
 }
 
 /**
@@ -12,7 +13,7 @@ interface MapViewProps {
  * Also manages mutual-exclusion between the expand widgets so that
  * opening one automatically collapses the others.
  */
-export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf }: MapViewProps) { // nb_changed 2026-11-16: + onTogglePdf
+export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf, children }: MapViewProps) { // nb_changed 2026-11-16: + onTogglePdf
   const layersExpandRef = React.useRef<HTMLElement & { expanded?: boolean }>(null);
   const basemapExpandRef = React.useRef<HTMLElement & { expanded?: boolean }>(null);
   const legendExpandRef = React.useRef<HTMLElement & { expanded?: boolean }>(null);
@@ -77,12 +78,17 @@ export function MapView({ webMapId, mapElementRef, homeElementRef, onTogglePdf }
           arcgis-placement is not available in this SDK version, so a plain slotted element carries the button. */}
       <div slot="top-left" className="pdf-toggle">
         <calcite-action
-          icon="file-pdf"
-          text="תוכנית המתאר (PDF)"
-          title="תוכנית המתאר (PDF)"
+          text="הוראות תכנית המתאר"
+          title="הוראות תכנית המתאר"
           onClick={onTogglePdf}
-        ></calcite-action>
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <path d="M4.5 2.5h11l4 4v15h-15zM15.5 2.5v4h4" />
+            <path d="M7.5 10h9M7.5 13.5h9M7.5 17h9" />
+          </svg>
+        </calcite-action>
       </div>
+      {children}
       <arcgis-expand
         ref={distanceExpandRef as React.Ref<any>}
         slot="top-left"

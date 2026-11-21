@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
-import { getLastTa5500Hits } from "../utils/assistantState";
+import { getLastTa5500Hits, setLastTa5500Hits } from "../utils/assistantState";
 import {
   loadTa5500ChunkIndex,
   regionsOf,
@@ -61,12 +61,17 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const RESIZE_DIRS: ResizeDir[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
-// nb_changed 2026-11-16 (revision 3): window size when it first opens; same values the CSS used to give (about 620 x 78% of the
-// screen height), kept clear of the chat panel on the right.
-const initialWindowSize = () => ({
-  w: Math.max(MIN_W, Math.min(620, window.innerWidth - 520)),
-  h: Math.max(MIN_H, Math.min(Math.round(window.innerHeight * 0.78), 820)),
+const initialWindowPosition = () => ({
+  left: Math.min(90, Math.max(0, window.innerWidth - MIN_W - 16)),
+  top: Math.min(80, Math.max(0, window.innerHeight - MIN_H - 16)),
 });
+const initialWindowSize = () => {
+  const { left, top } = initialWindowPosition();
+  return {
+    w: Math.max(MIN_W, Math.min(712, window.innerWidth - left - 16)),
+    h: Math.max(MIN_H, Math.min(652, window.innerHeight - top - 16)),
+  };
+};
 
 // nb_changed 2026-11-16 (revision 3): index of the page whose top is the last one at or above `y` (binary search; `pages` is sorted
 // by `top`). Used to know which page is on screen and to remember the reading place.
@@ -171,7 +176,7 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
   const [viewerEl, setViewerEl] = useState<HTMLDivElement | null>(null); // nb_changed 2026-11-16: the scroll container
   const [viewerSize, setViewerSize] = useState({ w: 0, h: 0 }); // nb_changed 2026-11-16: its visible size, kept up to date
   const [focusTick, setFocusTick] = useState(0); // nb_changed 2026-11-16: bumped to ask for a scroll to the chosen chunk
-  const [pos, setPos] = useState({ left: 90, top: 80 });
+  const [pos, setPos] = useState(initialWindowPosition);
   // nb_changed 2026-11-16 (revision 3): window size (px), changed by dragging the edges/corners; was fixed by CSS.
   const [size, setSize] = useState(initialWindowSize);
   // nb_changed 2026-11-16 (revision 3): page picker. `currentPage` follows the scroll; `pageText`/`editingPage` hold what the user
@@ -519,18 +524,13 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
 
       {loadError && <div className="pdf-window__error">{loadError}</div>}
 
-      {/* nb_changed 2026-11-16: the PDF is always shown; with no hits yet only a one-line hint is added above it
-          (it used to replace the whole window with an empty message). */}
-      {entries.length === 0 && (
-        <div className="pdf-window__hint">שאל שאלה על תוכנית המתאר בצ'אט, והקטעים שיוחזרו יסומנו כאן. אפשר גם לגלול בתוכנית.</div>
-      )}
-
       {entries.length > 0 && (
         <>
           <div className="pdf-window__nav">
             <calcite-button scale="s" appearance="outline" disabled={selected <= 0 ? true : undefined} onClick={() => go(-1)}>הקודם</calcite-button>
             <span className="pdf-window__counter">קטע {selected + 1} / {entries.length}</span>
             <calcite-button scale="s" appearance="outline" disabled={selected >= entries.length - 1 ? true : undefined} onClick={() => go(1)}>הבא</calcite-button>
+            <calcite-button scale="s" appearance="outline" onClick={() => setLastTa5500Hits([])}>ניקוי סימונים</calcite-button>
             {currentPages.length > 1 && (
               <span className="pdf-window__pages">
                 עמודים:
@@ -611,7 +611,6 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
           ) : (
             <div className="pdf-window__meta">{current?.hit.id} · עמוד {currentPages[0] ?? ""} · {locationNote}</div>
           )}
-          {current?.chunk?.text && <div className="pdf-window__text" dir="auto">{current.chunk.text}</div>}
         </div>
       )}
 

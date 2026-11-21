@@ -244,20 +244,25 @@ export default function App() {
         />
       ) : (
         <>
-          <MapView
-            webMapId={webMap.webMapId}
-            mapElementRef={webMap.mapElementRef}
-            homeElementRef={webMap.homeElementRef}
-            onTogglePdf={() => setShowPdfViewer((open) => !open)} // nb_changed 2026-11-16: map button toggles the viewer
-          />
-          {/* nb_changed 2026-11-16: floating PDF window; always mounted so it keeps the last hits, drawn only while open */}
-          <PdfViewerWindow open={showPdfViewer} onClose={() => setShowPdfViewer(false)} />
-          <div className="ds-ambient" aria-hidden="true" />
           <PolygonQueryPanel
             mapElementRef={webMap.mapElementRef}
             isMapReady={webMap.isMapReady}
             webMapId={webMap.webMapId}
-          />
+          >
+            {(controls) => (
+              <MapView
+                webMapId={webMap.webMapId}
+                mapElementRef={webMap.mapElementRef}
+                homeElementRef={webMap.homeElementRef}
+                onTogglePdf={() => setShowPdfViewer((open) => !open)}
+              >
+                {controls}
+              </MapView>
+            )}
+          </PolygonQueryPanel>
+          {/* nb_changed 2026-11-16: floating PDF window; always mounted so it keeps the last hits, drawn only while open */}
+          <PdfViewerWindow open={showPdfViewer} onClose={() => setShowPdfViewer(false)} />
+          <div className="ds-ambient" aria-hidden="true" />
           <AssistantPanel
             webMapId={webMap.webMapId}
             mcpHubRefreshToken={assistant.mcpHubRefreshToken}

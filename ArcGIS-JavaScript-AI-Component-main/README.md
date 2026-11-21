@@ -4,6 +4,10 @@ React + Vite app built with ArcGIS Maps SDK, ArcGIS Assistant components, and an
 
 The setup steps below include command equivalents for macOS, Linux, and Windows to reduce shell-specific onboarding errors.
 
+## Development stage
+
+STAGE: dev — proof of concept.
+
 ## Quick Start (Brand New Computer, Nothing Installed)
 
 Follow this if the machine has no dev tools at all yet. It only covers getting the tools installed — see [Local Setup](#local-setup) below for cloning and configuring this specific app.
@@ -331,7 +335,9 @@ When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122
 
 Other agents (data exploration, layer creation, MCP passthrough, help) stay available; the passthrough agent does not take plan questions in TA5500 mode.
 
-**PDF viewer.** Plan search hits open the viewer and highlight their chunks. `public/ta5500/chunks.json` is exported from the RAG's `bundle/chunks.parquet`; regenerate it after rebuilding the bundle using `python -m pipeline.export_pdf_chunks` in the RAG repository. Deploy it with the same PDF used to generate the boxes. Restart the TA5500 MCP server in the hub after changing its wrapper.
+**PDF viewer.** Plan search hits open the viewer and highlight their chunks; "ניקוי סימונים" clears only the PDF highlights. `public/ta5500/chunks.json` is exported from the RAG's `bundle/chunks.parquet`; regenerate it after rebuilding the bundle using `python -m pipeline.export_pdf_chunks` in the RAG repository. Deploy it with the same PDF used to generate the boxes. Restart the TA5500 MCP server in the hub after changing its wrapper.
+
+**Polygon query.** Use the map toolbar to draw a polygon and display intersecting planning layers. The planning-info export action becomes available once the analysis completes; the results panel's clear button removes the polygon and its map results.
 
 **Focus.** A plan answer sets the map focus (a place plus highlighted layers). A chip "מיקוד: …" with an X appears in the assistant panel while a focus is active. The focus is cleared by the chip, by asking ("נקה מיקוד", "אפס את המפה"), or by "שיחה חדשה"; clearing restores layer visibility and filters.
 

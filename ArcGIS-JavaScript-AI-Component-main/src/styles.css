@@ -780,7 +780,7 @@ arcgis-map.ds-map {
 /* ── Polygon query panel (draw → 100 m buffer → 5 layer groups) ───────────── */
 .pq-panel {
   position: absolute;
-  left: var(--panel-inset);
+  left: calc(var(--panel-inset) + 52px);
   bottom: calc(var(--panel-inset) + 56px);
   width: 300px;
   max-height: 55vh;
@@ -792,7 +792,6 @@ arcgis-map.ds-map {
   z-index: var(--z-header);
   font-size: 14px;
 }
-.pq-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .pq-hint { margin: 8px 0 4px; color: #555; font-size: 12px; }
 .pq-chip { display: inline-flex; align-items: stretch; border: 1px solid #c8c8c8; border-radius: 14px; background: #f0f0f0; color: #777; font-size: 13px; }
 .pq-chip button { display: inline-flex; align-items: center; padding: 2px 10px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
@@ -812,13 +811,7 @@ arcgis-map.ds-map {
 .pq-empty { margin: 4px 0; color: #888; font-size: 12px; }
 .pq-pdf { margin: 4px 0; padding: 2px 8px; font-size: 12px; cursor: pointer; border: 1px solid #0079c1; color: #0079c1; background: #fff; border-radius: 4px; }
 .pq-pdf:disabled { opacity: 0.5; cursor: default; }
-.pq-panel > calcite-button + calcite-button { margin-top: 8px; display: block; }
-.pq-dialog { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 12px; }
-.pq-choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .pq-boundary select { width: 100%; margin-top: 6px; padding: 4px; }
-.pq-panel > calcite-button + calcite-button { margin-top: 8px; display: block; }
-.pq-dialog { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 12px; }
-.pq-choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .pq-boundary select { width: 100%; margin-top: 6px; padding: 4px; }
 /* nb_changed 2026-11-16: TA5500 PDF viewer window (src/components/PdfViewerWindow.tsx) and its map button.
    The window floats above the map and the chat panel (z-index 22 > --z-panel 20, < --z-header 30), is resizable (CSS resize)
@@ -963,9 +956,6 @@ arcgis-map.ds-map {
   background: linear-gradient(135deg, transparent 0 55%, #8a93a3 55% 62%, transparent 62% 72%, #8a93a3 72% 79%, transparent 79% 89%, #8a93a3 89% 96%, transparent 96%);
 }
 
-/* nb_changed 2026-11-16: one-line hint shown above the PDF when no chunks have been returned yet */
-.pdf-window__hint { padding: 6px 12px; font-size: 0.82rem; color: var(--calcite-color-text-3, #6b6b6b); }
-
 /* a chunk's box: blue for the other returned chunks on the page, orange for the chosen one, dashed when the box is estimated */
 .pdf-box {
   position: absolute;
@@ -983,17 +973,8 @@ arcgis-map.ds-map {
 }
 .pdf-box--est { border-style: dashed; }
 
-.pdf-window__details { display: flex; flex-direction: column; min-height: 0; padding: 6px 10px 8px; border-top: 1px solid var(--calcite-color-border-3, #cfd4dc); }
+.pdf-window__details { padding: 6px 10px 8px; border-top: 1px solid var(--calcite-color-border-3, #cfd4dc); }
 .pdf-window__meta { font-size: 0.8rem; color: var(--calcite-color-text-3, #6b6b6b); }
-.pdf-window__text {
-  margin-top: 4px;
-  min-height: 0;
-  max-height: 96px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 0.85rem;
-  unicode-bidi: plaintext;
-}
 .pdf-window__empty,
 .pdf-window__error { padding: 14px 12px; font-size: 0.9rem; }
 .pdf-window__error { color: #b3261e; font-weight: 600; }
