@@ -9,7 +9,7 @@ import type { Place } from "./focus";
 // ---------- Router descriptions (spec §5.2) ----------
 
 export const PLAN_AGENT_DESCRIPTION =
-  `Answers questions about the Tel Aviv master plan תא/5500 (תוכנית המתאר) from the plan document: what the plan allows, requires or designates — building rights, רח"ק, heights, land uses, zone types (אזורי ייעוד), planning areas (אזור תכנון, e.g. 105, 703, 101ה), streets with special provisions, table 5.4, clauses (סעיף 3.3.2), development policy (פיתוח, תעסוקה, מגורים, מוסדות ציבור, שטחים פתוחים). When the answer is about a place or a plan layer it also shows it on the map (focuses on the place, highlights the relevant layers); a text-only answer leaves the map unchanged. While a plan focus is active it also changes what is shown in it and clears it (נקה מיקוד). Use for: 'מה מותר לבנות באזור 105?', 'מה תוכנית הפיתוח העסקי ברמת אביב?', 'מה אומר סעיף 4.3?', 'ומה לגבי מגורים שם?'. Do NOT use for map actions that do not ask what the plan says (navigate, show/hide layers, count features).`;
+  `Answers questions about the Tel Aviv master plan תא/5500 (תוכנית המתאר) from the plan document, including questions about a drawn polygon and its filter. Also handles requests to show or navigate to plan provisions in the instructions PDF. Use for 'מה הוראות התכנית לפוליגון?', 'מה מותר לבנות באזור 105?', 'מה אומר סעיף 4.3?', 'הצג את סעיף 4.3', 'גלול לסעיף על גובה מבנים', and 'ומה לגבי מגורים שם?'. When an answer is about a place or plan layer it may also focus relevant map layers; a text-only answer leaves the map unchanged. While a plan focus is active it also changes what is shown in it and clears it (נקה מיקוד). Do NOT use for map actions that do not ask what the plan says (navigate the map, show/hide layers, count features).`;
 
 export const MAP_AGENT_DESCRIPTION =
   `Performs map actions on the Tel Aviv-Yafo master plan map: go to a planning area, sub-area, street, neighborhood or address in Tel Aviv-Yafo; show, hide or filter the plan layers (zone types, development foci, planning areas, special streets); reset the map. Use for: 'תתמקד על אזור 703', 'קח אותי לרמת אביב', 'הצג רק אזורי מגורים', 'תסתיר את שכבת המוקדים', 'אפס את המפה'. Do NOT use for questions about what the plan says or allows (Plan agent), counts or statistics (data exploration), or places outside Tel Aviv-Yafo.`;
@@ -41,11 +41,18 @@ Produce:
 6. place: a free-text place that is not a plan code (a neighborhood, street or address, for example "רמת אביב"), as written; null if none.
 7. intent:
    - "answer": the user asks what the plan says, allows, requires or designates.
+   - "pdf_clause": the user only asks to show or navigate to an explicitly numbered clause in the instructions PDF.
+   - "pdf_topic": the user only asks to show or navigate to a provision by topic, without an explicit clause number.
+   - "polygon_only": the user only asks to enable or disable use of the drawn polygon as a search filter.
    - "refine_focus": a plan focus is active and the user only wants to change what is shown in it (for example "הצג רק את המגורים שם") without asking what the plan says.
    - "clear_focus": the user asks to clear the focus or reset the map (for example "נקה מיקוד", "אפס את המפה").
+8. pdfClause: for pdf_clause, the exact clause number written in the latest request (e.g. "3.3.2"), otherwise null.
+9. polygonAction: "enable" if the user explicitly asks to use the drawn polygon or asks a question about it; "disable" if explicitly asking to stop using it; otherwise "none".
 
 Rules:
 - Never invent codes, area numbers, zone type ids or section numbers. Copy only values that appear in the conversation or in the current focus; when unsure, leave the field empty. The values are checked against the plan afterwards.
+- "מה אומר סעיף 4.3?" asks for an answer, while "הצג את סעיף 4.3" requests only PDF navigation. "הצג את הסעיף על גובה מבנים" requests PDF navigation by topic. If the user asks both what a provision says and to show it, use "answer".
+- A drawn polygon is not a named place; do not put "פוליגון" or "polygon" in place. Its filters are applied separately.
 - When the request names no place and refers back to one ("שם", "באזור הזה"), take the place from the current focus or the earlier messages.
 - If the assistant's last message asked which planning area was meant and the latest request answers it, write the question again for the chosen area and put its code in areas.
 - Write the question in Hebrew, in gender-neutral wording.`;

@@ -4,8 +4,19 @@
 // Uses only fetch/AbortController/setTimeout, so it loads in Node (tsx --test) as well as the browser.
 // Absolute http(s) MCP URLs are rewritten to the dev-only Vite relay (/dev-mcp-relay/...).
 import { normalizeUrl, resolveHubServersUrl, type McpToolDef } from "../agents/mcpAgentCore";
+import { EntityScopeError } from "./focusFilters";
 
 export type McpToolResult = { content?: unknown; structuredContent?: unknown; isError?: boolean };
+
+export function verifyEntityAreaScope(result: McpToolResult, args: Record<string, unknown>): void {
+  const expected = args.entity_area_scope;
+  if (!Array.isArray(expected)) return;
+  const content = result.structuredContent;
+  const actual = content && typeof content === "object" && "entity_area_scope" in content ? content.entity_area_scope : null;
+  if (!Array.isArray(actual) || actual.length !== expected.length || !expected.every((area, i) => area === actual[i])) {
+    throw new EntityScopeError("שרת התוכנית לא אישר הגבלה לאזור הפוליגון. יש לעדכן ולהפעיל מחדש את שירות התוכנית ואת שרת ה-MCP.");
+  }
+}
 
 export interface HubServerSummary {
   id: string;
@@ -198,6 +209,7 @@ export async function callMcpTool(endpointUrl: string, name: string, args: Recor
   if (result?.isError) {
     return `Tool returned an error: ${extractText(result.content) || "Unknown tool error."}`;
   }
+  verifyEntityAreaScope(result, args);
   return extractText(result?.content) || JSON.stringify(result ?? "");
 }
 

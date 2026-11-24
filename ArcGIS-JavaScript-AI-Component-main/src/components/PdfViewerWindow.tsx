@@ -10,8 +10,10 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
-import { getLastTa5500Hits } from "../utils/assistantState";
+import { getLastTa5500Hits, setLastTa5500Hits } from "../utils/assistantState";
 import {
+  chunkLabel,
+  filterViewerHits,
   loadTa5500ChunkIndex,
   regionsOf,
   type Ta5500Chunk,
@@ -40,6 +42,7 @@ export interface PdfViewerWindowProps {
 interface Entry {
   hit: Ta5500Hit;
   chunk: Ta5500Chunk | undefined; // undefined = the id is not in chunks.json
+  previous: Ta5500Chunk | undefined;
   regions: Ta5500Region[];
 }
 
@@ -61,12 +64,17 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const RESIZE_DIRS: ResizeDir[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
-// nb_changed 2026-11-16 (revision 3): window size when it first opens; same values the CSS used to give (about 620 x 78% of the
-// screen height), kept clear of the chat panel on the right.
-const initialWindowSize = () => ({
-  w: Math.max(MIN_W, Math.min(620, window.innerWidth - 520)),
-  h: Math.max(MIN_H, Math.min(Math.round(window.innerHeight * 0.78), 820)),
+const initialWindowPosition = () => ({
+  left: Math.min(90, Math.max(0, window.innerWidth - MIN_W - 16)),
+  top: Math.min(80, Math.max(0, window.innerHeight - MIN_H - 16)),
 });
+const initialWindowSize = () => {
+  const { left, top } = initialWindowPosition();
+  return {
+    w: Math.max(MIN_W, Math.min(712, window.innerWidth - left - 16)),
+    h: Math.max(MIN_H, Math.min(652, window.innerHeight - top - 16)),
+  };
+};
 
 // nb_changed 2026-11-16 (revision 3): index of the page whose top is the last one at or above `y` (binary search; `pages` is sorted
 // by `top`). Used to know which page is on screen and to remember the reading place.
@@ -160,7 +168,8 @@ function PdfPage({
 }
 
 export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
-  const [hits, setHits] = useState<Ta5500Hit[]>(() => getLastTa5500Hits()?.hits ?? []);
+  const [snapshot, setSnapshot] = useState(() => getLastTa5500Hits());
+  const hits = snapshot?.hits ?? [];
   const [index, setIndex] = useState<Map<string, Ta5500Chunk> | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -171,7 +180,7 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
   const [viewerEl, setViewerEl] = useState<HTMLDivElement | null>(null); // nb_changed 2026-11-16: the scroll container
   const [viewerSize, setViewerSize] = useState({ w: 0, h: 0 }); // nb_changed 2026-11-16: its visible size, kept up to date
   const [focusTick, setFocusTick] = useState(0); // nb_changed 2026-11-16: bumped to ask for a scroll to the chosen chunk
-  const [pos, setPos] = useState({ left: 90, top: 80 });
+  const [pos, setPos] = useState(initialWindowPosition);
   // nb_changed 2026-11-16 (revision 3): window size (px), changed by dragging the edges/corners; was fixed by CSS.
   const [size, setSize] = useState(initialWindowSize);
   // nb_changed 2026-11-16 (revision 3): page picker. `currentPage` follows the scroll; `pageText`/`editingPage` hold what the user
@@ -186,11 +195,21 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   // nb_changed 2026-11-16 (revision 3): state of a window resize in progress (which handle, and the pointer/window values at the start).
   const resizeRef = useRef<{ dir: ResizeDir; x: number; y: number; left: number; top: number; w: number; h: number } | null>(null);
+  const hasOpenedRef = useRef(false);
   // nb_changed 2026-11-16 (revision 3): the part of the document at the top of the view (page index + how far through that page),
   // so it can be restored when a resize or zoom changes the page sizes; plus the latest layout for the throttled scroll handler.
   const anchorRef = useRef<{ page: number; fraction: number } | null>(null);
   const layoutRef = useRef<PageLayout[] | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || hasOpenedRef.current) return;
+    hasOpenedRef.current = true;
+    const headerBottom = document.querySelector(".ds-header")?.getBoundingClientRect().bottom ?? 0;
+    const top = Math.min(Math.max(80, headerBottom + 12), Math.max(0, window.innerHeight - MIN_H - 16));
+    setPos((position) => ({ ...position, top }));
+    setSize((current) => ({ ...current, h: Math.max(MIN_H, Math.min(current.h, window.innerHeight - top - 16)) }));
+  }, [open]);
 
   // nb_changed 2026-11-16: choose a chunk and ask the view to scroll to it (used by Prev/Next, chips and clicks on a box).
   const selectChunk = useCallback((i: number) => {
@@ -203,7 +222,7 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
   // New hits arrive through a window event (setLastTa5500Hits). A new answer restarts at the first (best) chunk.
   useEffect(() => {
     const onHits = () => {
-      setHits(getLastTa5500Hits()?.hits ?? []);
+      setSnapshot(getLastTa5500Hits());
       selectChunk(0); // nb_changed 2026-11-16: was setSelected(0); also asks the view to scroll to the first chunk
     };
     window.addEventListener("ta5500-hits-changed", onHits);
@@ -263,14 +282,16 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
   }, [viewerEl]);
 
   // Hits joined with their boxes. Ranking order is kept.
-  const entries: Entry[] = useMemo(
-    () =>
-      hits.map((hit) => {
-        const chunk = index?.get(hit.id);
-        return { hit, chunk, regions: chunk ? regionsOf(chunk) : [] };
-      }),
-    [hits, index],
-  );
+  const entries: Entry[] = useMemo(() => {
+    if (!index) return [];
+    const bySequence = new Map([...index.values()].filter((chunk) => chunk.seq != null).map((chunk) => [chunk.seq, chunk]));
+    const visibleHits = filterViewerHits(hits, index, snapshot?.request ?? "");
+    return visibleHits.map((hit) => {
+      const chunk = index.get(hit.id);
+      const previous = chunk?.seq != null ? bySequence.get(chunk.seq - 1) : undefined;
+      return { hit, chunk, previous, regions: chunk ? regionsOf(chunk) : [] };
+    });
+  }, [hits, index, snapshot?.request]);
   const current = entries[selected];
   const currentPages = useMemo(
     () => [...new Set((current?.regions ?? []).map((r) => r.pdf_page))],
@@ -456,6 +477,7 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
 
   // label for the shown chunk's box: exact, or estimated between neighbouring chunks (dashed on the page)
   const locationNote = current?.chunk ? (current.chunk.bbox_exact ? "מיקום מדויק" : "מיקום משוער (בין קטעים סמוכים)") : "";
+  const currentLabel = current ? chunkLabel(current.hit, current.chunk, current.previous) : null;
 
   return (
     // nb_changed 2026-11-16 (revision 3): width/height now come from the `size` state (they used to be fixed in CSS)
@@ -473,7 +495,6 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
         <calcite-action icon="plus" scale="s" text="הגדלה" title="הגדלה" onClick={() => setZoom((z) => clamp(+(z + 0.2).toFixed(2), MIN_ZOOM, MAX_ZOOM))}></calcite-action>
         <calcite-action icon="x" scale="s" text="סגירה" title="סגירה" onClick={onClose}></calcite-action>
       </div>
-
       {/* nb_changed 2026-11-16 (revision 3): page picker. The number follows the scroll; type a page + Enter to jump to it; the
           arrows go one page back/forward (up/down chevrons: the pages are stacked vertically, whatever the text direction). */}
       <div className="pdf-window__pagebar">
@@ -518,19 +539,16 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
       </div>
 
       {loadError && <div className="pdf-window__error">{loadError}</div>}
-
-      {/* nb_changed 2026-11-16: the PDF is always shown; with no hits yet only a one-line hint is added above it
-          (it used to replace the whole window with an empty message). */}
-      {entries.length === 0 && (
-        <div className="pdf-window__hint">שאל שאלה על תוכנית המתאר בצ'אט, והקטעים שיוחזרו יסומנו כאן. אפשר גם לגלול בתוכנית.</div>
+      {index && hits.length > 0 && entries.length === 0 && (
+        <div className="pdf-window__empty">אין קטעים להצגה במסמך עבור הבקשה.</div>
       )}
 
       {entries.length > 0 && (
         <>
           <div className="pdf-window__nav">
             <calcite-button scale="s" appearance="outline" disabled={selected <= 0 ? true : undefined} onClick={() => go(-1)}>הקודם</calcite-button>
-            <span className="pdf-window__counter">קטע {selected + 1} / {entries.length}</span>
             <calcite-button scale="s" appearance="outline" disabled={selected >= entries.length - 1 ? true : undefined} onClick={() => go(1)}>הבא</calcite-button>
+            <calcite-button scale="s" appearance="outline" onClick={() => setLastTa5500Hits([])}>ניקוי סימונים</calcite-button>
             {currentPages.length > 1 && (
               <span className="pdf-window__pages">
                 עמודים:
@@ -551,67 +569,76 @@ export function PdfViewerWindow({ open, onClose }: PdfViewerWindowProps) {
             )}
           </div>
 
-          <div className="pdf-window__chips">
-            {entries.map((entry, i) => (
-              <button
-                key={entry.hit.id}
-                type="button"
-                className={`${i === selected ? "on" : ""}${entry.regions.length ? "" : " nomap"}`}
-                title={entry.regions.length ? entry.hit.id : `${entry.hit.id} – אין מיקום בקובץ ה-PDF`}
-                onClick={() => selectChunk(i)}
-              >
-                {i + 1} · {entry.hit.id}
-              </button>
-            ))}
-          </div>
         </>
       )}
 
-      {/* nb_changed 2026-11-16: the scroll area with ALL pages (was one canvas for the chosen page). The pages are LTR so the
-          absolute left/top offsets of the boxes match the PDF coordinates. */}
-      <div className="pdf-window__viewer" ref={setViewerEl} onScroll={onViewerScroll}> {/* nb_changed 2026-11-16 (revision 3): onScroll feeds the page box and the reading place */}
-        <div className="pdf-window__column" dir="ltr">
-          {pdf &&
-            layout &&
-            layout.map((page, n) => (
-              <PdfPage
-                key={n + 1}
-                pdf={pdf}
-                pageNumber={n + 1}
-                scale={page.scale}
-                width={page.width}
-                height={page.height}
-                root={viewerEl}
-              >
-                <div className="pdf-window__overlay">
-                  {(boxesByPage.get(n + 1) ?? []).map(({ key, i, entry, r }) => (
-                    <div
-                      key={key}
-                      className={`pdf-box${i === selected ? " pdf-box--sel" : ""}${entry.chunk?.bbox_exact === false ? " pdf-box--est" : ""}`}
-                      style={{
-                        left: `${(r.x0 / r.page_w) * 100}%`,
-                        top: `${(r.y0 / r.page_h) * 100}%`,
-                        width: `${((r.x1 - r.x0) / r.page_w) * 100}%`,
-                        height: `${((r.y1 - r.y0) / r.page_h) * 100}%`,
-                      }}
-                      title={`#${i + 1} ${entry.hit.id}`}
-                      onClick={() => selectChunk(i)}
-                    />
-                  ))}
-                </div>
-              </PdfPage>
-            ))}
+      <div className="pdf-window__body">
+        {entries.length > 0 && (
+          <aside className="pdf-window__results" aria-label="קטעים שנמצאו">
+            <div className="pdf-window__results-title">קטעים שנמצאו</div>
+            {entries.map((entry, i) => {
+              const label = chunkLabel(entry.hit, entry.chunk, entry.previous);
+              const fullLabel = [label.title, label.context].filter(Boolean).join(" · ");
+              return (
+                <button
+                  key={entry.hit.id}
+                  type="button"
+                  className={`${i === selected ? "on" : ""}${entry.regions.length ? "" : " nomap"}`}
+                  aria-current={i === selected ? "true" : undefined}
+                  title={entry.regions.length ? fullLabel : `${fullLabel} – אין מיקום בקובץ ה-PDF`}
+                  onClick={() => selectChunk(i)}
+                >
+                  <span>{label.title}</span>
+                  {label.context && <small>{label.context}</small>}
+                </button>
+              );
+            })}
+          </aside>
+        )}
+          {/* The pages are LTR so the overlay offsets match the PDF coordinates. */}
+          <div className="pdf-window__viewer" ref={setViewerEl} onScroll={onViewerScroll}>
+            <div className="pdf-window__column" dir="ltr">
+              {pdf &&
+                layout &&
+                layout.map((page, n) => (
+                  <PdfPage
+                    key={n + 1}
+                    pdf={pdf}
+                    pageNumber={n + 1}
+                    scale={page.scale}
+                    width={page.width}
+                    height={page.height}
+                    root={viewerEl}
+                  >
+                    <div className="pdf-window__overlay">
+                      {(boxesByPage.get(n + 1) ?? []).map(({ key, i, entry, r }) => (
+                        <div
+                          key={key}
+                          className={`pdf-box${i === selected ? " pdf-box--sel" : ""}${entry.chunk?.bbox_exact === false ? " pdf-box--est" : ""}`}
+                          style={{
+                            left: `${(r.x0 / r.page_w) * 100}%`,
+                            top: `${(r.y0 / r.page_h) * 100}%`,
+                            width: `${((r.x1 - r.x0) / r.page_w) * 100}%`,
+                            height: `${((r.y1 - r.y0) / r.page_h) * 100}%`,
+                          }}
+                          title={chunkLabel(entry.hit, entry.chunk, entry.previous).title}
+                          onClick={() => selectChunk(i)}
+                        />
+                      ))}
+                    </div>
+                  </PdfPage>
+                ))}
+            </div>
         </div>
-      </div>
+        </div>
 
       {entries.length > 0 && (
         <div className="pdf-window__details">
           {current && !current.regions.length ? (
-            <div className="pdf-window__error">אין מיקום בקובץ ה-PDF עבור הקטע {current.hit.id}.</div>
+            <div className="pdf-window__error">אין מיקום בקובץ ה-PDF עבור הקטע {currentLabel?.title}.</div>
           ) : (
-            <div className="pdf-window__meta">{current?.hit.id} · עמוד {currentPages[0] ?? ""} · {locationNote}</div>
+            <div className="pdf-window__meta">{currentLabel?.title} · עמוד {currentPages[0] ?? ""} · {locationNote}</div>
           )}
-          {current?.chunk?.text && <div className="pdf-window__text" dir="auto">{current.chunk.text}</div>}
         </div>
       )}
 

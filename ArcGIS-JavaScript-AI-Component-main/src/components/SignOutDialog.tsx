@@ -15,6 +15,7 @@ export function SignOutDialog({ open, onClose, onConfirm }: SignOutDialogProps) 
   return (
     <calcite-dialog
       open
+      drag-enabled
       overlay-positioning="fixed"
       heading="התנתקות"
       onCalciteDialogClose={onClose}

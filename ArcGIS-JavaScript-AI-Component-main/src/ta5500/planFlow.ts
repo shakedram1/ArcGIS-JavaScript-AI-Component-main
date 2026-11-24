@@ -8,6 +8,7 @@ import type { Place } from "./focus";
 import type { CatalogMatch } from "./catalog";
 import type { PlanFilters, PlanLocations, PlanSearchResult } from "./types";
 import { PlanServiceError } from "./ragClient";
+import { parseTa5500Hits, type Ta5500Hit } from "../utils/ta5500Chunks";
 import {
   REQUEST_FAILED_REPLY,
   PLAN_NO_PLACE_NOTE,
@@ -20,6 +21,11 @@ import {
 } from "./prompts";
 
 const FILTER_KEYS: (keyof PlanFilters)[] = ["areas", "entities", "zone_types", "headings"];
+
+export function planViewerHits(result: PlanSearchResult): Ta5500Hit[] {
+  const hits = result.hits.flatMap((hit) => hit.chunk_id ? [{ id: hit.chunk_id }] : []);
+  return hits.length ? hits : parseTa5500Hits([result.text]);
+}
 
 function messageText(m: BaseMessage): string {
   const c: unknown = (m as any)?.content;

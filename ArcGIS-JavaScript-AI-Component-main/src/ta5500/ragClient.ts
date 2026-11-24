@@ -1,6 +1,8 @@
 // Client for the TA5500 RAG tools behind the MCP hub (namespaced ta5500__*). Node-safe: no DOM, no @arcgis/*.
 import { normalizeUrl } from "../agents/mcpAgentCore";
-import { callMcpToolRaw, extractText, isAbortLikeError, type McpToolResult } from "../utils/mcpClient";
+import { callMcpToolRaw, extractText, isAbortLikeError, verifyEntityAreaScope, type McpToolResult } from "../utils/mcpClient";
+import { applyFocusToSearchArgs, type FocusFilters } from "../utils/focusFilters";
+import type { FocusNote } from "../utils/focusNotes";
 import type { PlanFilters, PlanHit, PlanLocations, PlanSearchResult } from "./types";
 
 export const PLAN_SERVICE_UNAVAILABLE = "שירות תוכנית המתאר אינו זמין כרגע. נסו שוב בעוד מספר דקות.";
@@ -32,12 +34,18 @@ export function parseSearchPlanResult(r: McpToolResult): PlanSearchResult {
   const sc: any = r.structuredContent && typeof r.structuredContent === "object" ? r.structuredContent : {};
   const loc = sc.location ?? {};
   const hits: PlanHit[] = Array.isArray(sc.hits)
-    ? sc.hits.map((h: any) => ({
-        citation: String(h?.citation ?? ""),
-        pages: String(h?.pages ?? ""),
-        via: String(h?.via ?? ""),
-        heading_path: Array.isArray(h?.heading_path) ? h.heading_path.join(" > ") : String(h?.heading_path ?? ""),
-      }))
+    ? sc.hits.map((h: any) => {
+        const start = h?.page_start;
+        const end = h?.page_end;
+        const pages = h?.pages ?? (start == null ? "" : end != null && end !== start ? `${start}-${end}` : start);
+        return {
+          ...(typeof h?.chunk_id === "string" ? { chunk_id: h.chunk_id } : {}),
+          citation: String(h?.citation ?? ""),
+          pages: String(pages),
+          via: String(h?.via ?? ""),
+          heading_path: Array.isArray(h?.heading_path) ? h.heading_path.join(" > ") : String(h?.heading_path ?? ""),
+        };
+      })
     : [];
   return {
     text,
@@ -75,13 +83,22 @@ async function callTool(endpointUrl: string, name: string, args: Record<string, 
   }
 }
 
-export async function searchPlan(endpointUrl: string, question: string, filters: PlanFilters = {}): Promise<PlanSearchResult> {
+export async function searchPlan(
+  endpointUrl: string,
+  question: string,
+  filters: PlanFilters = {},
+  focus?: { filters: FocusFilters; notes: FocusNote[] },
+): Promise<PlanSearchResult> {
   const args: Record<string, unknown> = {};
   if (question.trim()) args.question = question.trim();
   for (const [k, v] of Object.entries(filters)) {
     if (Array.isArray(v) && v.length) args[k] = v;
   }
-  return parseSearchPlanResult(await callTool(endpointUrl, SEARCH_TOOL, args));
+  const searchArgs = focus ? applyFocusToSearchArgs(args, focus.filters, focus.notes) : args;
+  const result = await callTool(endpointUrl, SEARCH_TOOL, searchArgs);
+  const parsed = parseSearchPlanResult(result);
+  verifyEntityAreaScope(result, searchArgs);
+  return parsed;
 }
 
 const locationsCache = new Map<string, Promise<PlanLocations>>();

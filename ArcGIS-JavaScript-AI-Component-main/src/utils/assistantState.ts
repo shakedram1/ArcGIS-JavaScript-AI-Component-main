@@ -45,6 +45,7 @@ export interface CreatedFeatureLayerSnapshot {
 // nb_changed 2026-11-16: ranked chunk hits of the last TA5500 RAG answer (read by the PDF viewer window).
 export interface Ta5500HitsSnapshot {
   hits: Ta5500Hit[];
+  request?: string;
   updatedAt: string;
 }
 
@@ -88,8 +89,8 @@ export function getLastCreatedFeatureLayer(): CreatedFeatureLayerSnapshot | null
 
 // nb_changed 2026-11-16: stores the ranked chunk hits of a TA5500 RAG answer and tells the PDF viewer window (which listens on
 // window) that new hits are available, so it can open and jump to the first chunk.
-export function setLastTa5500Hits(hits: Ta5500Hit[]): void {
-  getAssistantState().lastTa5500Hits = { hits, updatedAt: new Date().toISOString() };
+export function setLastTa5500Hits(hits: Ta5500Hit[], request = ""): void {
+  getAssistantState().lastTa5500Hits = { hits, request, updatedAt: new Date().toISOString() };
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("ta5500-hits-changed"));
   }

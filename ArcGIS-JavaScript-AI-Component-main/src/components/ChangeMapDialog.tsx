@@ -32,6 +32,7 @@ export function ChangeMapDialog({
   return (
     <calcite-dialog
       open
+      drag-enabled
       overlay-positioning="fixed"
       heading="החלפת מפת אינטרנט"
       onCalciteDialogClose={onClose}

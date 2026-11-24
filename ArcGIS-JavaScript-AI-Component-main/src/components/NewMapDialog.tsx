@@ -217,6 +217,7 @@ export function NewMapDialog({ open, oauthClientId, portalUrl, onClose, onCreate
   return (
     <calcite-dialog
       open
+      drag-enabled
       overlay-positioning="fixed"
       heading="יצירת מפת אינטרנט חדשה"
       width-scale="m"

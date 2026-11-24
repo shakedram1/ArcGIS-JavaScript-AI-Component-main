@@ -4,6 +4,10 @@ React + Vite app built with ArcGIS Maps SDK, ArcGIS Assistant components, and an
 
 The setup steps below include command equivalents for macOS, Linux, and Windows to reduce shell-specific onboarding errors.
 
+## Development stage
+
+STAGE: dev — proof of concept.
+
 ## Quick Start (Brand New Computer, Nothing Installed)
 
 Follow this if the machine has no dev tools at all yet. It only covers getting the tools installed — see [Local Setup](#local-setup) below for cloning and configuring this specific app.
@@ -41,6 +45,7 @@ Most of this app has been vibe coded with various coding agents. Review the code
 - Render MCP geography on the map when results include places, ranked city lists, or bounding boxes — each map pin shows a popup sourced from the specific article or record that mentioned that place, not a generic summary.
 - Create and manage hosted feature layers from assistant results.
 - Customise the app header and chat panel via the theme editor (`?mode=edit`) — changes persist across browser refreshes via `localStorage`.
+- Collapse the chat without clearing its conversation, or resize it from its left edge (also using the arrow keys). App dialogs can be dragged by their headers.
 
 ## Local Development Requirements
 
@@ -325,11 +330,15 @@ When the loaded WebMap contains the TA5500 plan layers (planning-areas layer 122
 
 | Agent id | Chosen when the request is about | Does |
 |---|---|---|
-| `ta5500-plan` | what the plan says or allows ("מה מותר לבנות באזור 105?", "מה אומר סעיף 4.3?"), and follow-ups or clearing the focus ("ומה לגבי מגורים שם?", "נקה מיקוד") | Answers from the plan with citations, focuses the map on the named place and highlights the relevant layers |
+| `ta5500-plan` | what the plan says or allows ("מה מותר לבנות באזור 105?", "מה אומר סעיף 4.3?"), PDF provision navigation ("הצג את סעיף 4.3"), and follow-ups or clearing the focus ("ומה לגבי מגורים שם?", "נקה מיקוד") | Answers from the plan with citations, focuses the map on the named place and highlights the relevant layers; navigates to PDF provisions without producing an answer |
 | `ta5500-map` | a map action on the plan map ("קח אותי לרמת אביב", "הצג רק אזורי מגורים", "תסתיר את שכבת המוקדים", "אפס את המפה") | Go to a place, show/filter/hide whole layers, reset. Hiding only part of a layer is declined |
 | `ta5500-scope` | a place outside Tel Aviv-Yafo or an unrelated topic | Replies that the assistant only covers the Tel Aviv master plan |
 
-Other agents (data exploration, layer creation, MCP passthrough, help) stay available; the passthrough agent does not take plan questions in TA5500 mode.
+Other agents (data exploration, layer creation, help) stay available. In TA5500 mode the MCP passthrough agent is available for other connected MCP tools, but not when the hub only exposes the TA5500 tools.
+
+**PDF viewer.** Plan search hits open the viewer and highlight their chunks; the results pane to the right of the PDF navigates between them using plan labels. Introductory and whole-chapter chunks are excluded from the pane and highlights unless specifically requested; this does not change the RAG response. "ניקוי סימונים" clears only the PDF highlights. A request to show a numbered clause uses the PDF index directly; a request to show a provision by topic uses RAG to locate it without generating an answer. `public/ta5500/chunks.json` is exported from the RAG's `bundle/chunks.parquet`; regenerate it after rebuilding the bundle using `python -m pipeline.export_pdf_chunks` in the RAG repository. Deploy it with the same PDF used to generate the boxes. Restart the TA5500 MCP server in the hub after changing its wrapper.
+
+**Polygon query.** Use the map toolbar to draw a polygon and display intersecting planning layers. Enable its chat filter with the polygon chip or by asking about the polygon; the plan agent applies its filters and notes to searches. Street rows are restricted to the polygon's intersected planning areas; the app requires the RAG service and MCP wrapper to confirm that scope. The planning-info export action becomes available once the analysis completes. The results panel can be dragged; the drawing icon shows a blue dot when a polygon exists and toggles the panel. Its eye controls synchronize with the map's layer list. Use the panel's new-drawing action to replace the polygon, or its clear action to remove it and its map results.
 
 **Focus.** A plan answer sets the map focus (a place plus highlighted layers). A chip "מיקוד: …" with an X appears in the assistant panel while a focus is active. The focus is cleared by the chip, by asking ("נקה מיקוד", "אפס את המפה"), or by "שיחה חדשה"; clearing restores layer visibility and filters.
 

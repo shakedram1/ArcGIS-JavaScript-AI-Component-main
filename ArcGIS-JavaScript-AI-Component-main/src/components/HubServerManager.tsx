@@ -726,6 +726,7 @@ export default function HubServerManager({ open, onClose, onServersChanged }: Pr
   return (
     <calcite-dialog
       ref={dialogRef as any}
+      drag-enabled
       overlay-positioning="fixed"
       heading="ניהול שרתי MCP"
       widthScale="m"

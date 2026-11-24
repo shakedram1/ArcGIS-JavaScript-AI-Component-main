@@ -25,6 +25,7 @@ export function ThemeEditorDialog({ open, theme, onDone, onCancel, snapshotRef }
   return (
     <calcite-dialog
       open
+      drag-enabled
       overlay-positioning="fixed"
       heading="עריכת ערכת נושא"
       width="m"

@@ -345,6 +345,7 @@ arcgis-map.ds-map {
   right: var(--panel-inset);
   bottom: var(--panel-inset);
   width: var(--panel-width);
+  max-width: calc(100vw - 72px);
   z-index: var(--z-panel);
   animation: ds-fade-up var(--dur-slow) var(--ease-out) both 60ms;
 }
@@ -352,6 +353,20 @@ arcgis-map.ds-map {
 .app-shell--edit .ds-panel {
   width: var(--panel-width-edit);
 }
+
+.ds-panel.ds-panel--collapsed {
+  bottom: auto;
+  width: auto;
+}
+
+.ds-panel-resize {
+  position: absolute;
+  inset: 14px auto 14px -5px;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ds-panel-resize:focus-visible { outline: 2px solid #1f5fbf; }
 
 .ds-glass-border {
   position: relative;
@@ -780,7 +795,7 @@ arcgis-map.ds-map {
 /* ── Polygon query panel (draw → 100 m buffer → 5 layer groups) ───────────── */
 .pq-panel {
   position: absolute;
-  left: var(--panel-inset);
+  left: calc(var(--panel-inset) + 52px);
   bottom: calc(var(--panel-inset) + 56px);
   width: 300px;
   max-height: 55vh;
@@ -792,7 +807,22 @@ arcgis-map.ds-map {
   z-index: var(--z-header);
   font-size: 14px;
 }
-.pq-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.pq-header { display: flex; align-items: center; gap: 4px; cursor: grab; touch-action: none; }
+.pq-header:active { cursor: grabbing; }
+.pq-header > span { flex: 1; font-weight: 600; }
+.pq-draw-toggle { position: relative; }
+.pq-draw-toggle--active::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: #0079c1;
+  pointer-events: none;
+}
 .pq-hint { margin: 8px 0 4px; color: #555; font-size: 12px; }
 .pq-chip { display: inline-flex; align-items: stretch; border: 1px solid #c8c8c8; border-radius: 14px; background: #f0f0f0; color: #777; font-size: 13px; }
 .pq-chip button { display: inline-flex; align-items: center; padding: 2px 10px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
@@ -804,21 +834,18 @@ arcgis-map.ds-map {
 .pq-error { margin: 8px 0 0; color: #c0392b; }
 .pq-group { border-top: 1px solid #ddd; padding: 6px 0; }
 .pq-group > summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.pq-group > summary::before { content: ""; width: 6px; height: 6px; border-left: 1.5px solid; border-bottom: 1.5px solid; transform: rotate(45deg); }
+.pq-group[open] > summary::before { transform: rotate(-45deg); }
+.pq-group > summary > calcite-action { margin-inline-start: auto; }
 .pq-badge { background: #0079c1; color: #fff; border-radius: 999px; padding: 0 8px; font-size: 12px; }
-.pq-layer { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+.pq-layer { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
 .pq-layer--none { opacity: 0.5; }
 .pq-layer-title { flex: 1; }
 .pq-count { color: #666; font-size: 12px; }
 .pq-empty { margin: 4px 0; color: #888; font-size: 12px; }
 .pq-pdf { margin: 4px 0; padding: 2px 8px; font-size: 12px; cursor: pointer; border: 1px solid #0079c1; color: #0079c1; background: #fff; border-radius: 4px; }
 .pq-pdf:disabled { opacity: 0.5; cursor: default; }
-.pq-panel > calcite-button + calcite-button { margin-top: 8px; display: block; }
-.pq-dialog { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 12px; }
-.pq-choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .pq-boundary select { width: 100%; margin-top: 6px; padding: 4px; }
-.pq-panel > calcite-button + calcite-button { margin-top: 8px; display: block; }
-.pq-dialog { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 12px; }
-.pq-choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .pq-boundary select { width: 100%; margin-top: 6px; padding: 4px; }
 /* nb_changed 2026-11-16: TA5500 PDF viewer window (src/components/PdfViewerWindow.tsx) and its map button.
    The window floats above the map and the chat panel (z-index 22 > --z-panel 20, < --z-header 30), is resizable (CSS resize)
@@ -867,10 +894,8 @@ arcgis-map.ds-map {
   gap: 8px;
   padding: 6px 10px;
 }
-.pdf-window__counter { font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .pdf-window__pages { margin-inline-start: auto; font-size: 0.85rem; display: inline-flex; gap: 4px; align-items: center; }
-.pdf-window__pages button,
-.pdf-window__chips button {
+.pdf-window__pages button {
   font: inherit;
   font-size: 0.8rem;
   padding: 2px 8px;
@@ -880,23 +905,45 @@ arcgis-map.ds-map {
   color: inherit;
   cursor: pointer;
 }
-/* nb_changed 2026-11-16: the ".pdf-window__pages button.on" state was removed: the multi-page buttons of a chunk now scroll
-   to that page's box, they no longer switch a shown page, so there is no "current page" to mark */
-.pdf-window__chips button.on { background: #ff6a00; border-color: #ff6a00; color: #fff; }
-.pdf-window__chips button.nomap { opacity: 0.55; border-style: dashed; }
-
-.pdf-window__chips {
+.pdf-window__body {
   display: flex;
-  gap: 6px;
-  padding: 0 10px 6px;
-  overflow-x: auto;
-  white-space: nowrap;
-  direction: ltr; /* chunk ids such as 3.1.5(ג) and 5.4[58] read correctly in a left-to-right row */
-}
-
-.pdf-window__viewer {
-  flex: 1 1 auto;
+  flex: 1 1 80px;
   min-height: 0;
+}
+.pdf-window__results {
+  flex: 0 0 clamp(100px, 22%, 150px);
+  overflow: auto;
+  border-left: 1px solid var(--calcite-color-border-3, #cfd4dc);
+}
+.pdf-window__results-title { padding: 6px; font-size: 0.75rem; font-weight: 700; }
+.pdf-window__results button {
+  display: block;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-bottom: 1px solid var(--calcite-color-border-3, #cfd4dc);
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.pdf-window__results button span,
+.pdf-window__results button small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.pdf-window__results button small { margin-top: 2px; font-size: 0.625rem; }
+.pdf-window__results button.on { background: #ff6a00; color: #fff; }
+.pdf-window__results button.nomap { opacity: 0.55; }
+.pdf-window__viewer {
+  flex: 1 1 80px;
+  min-width: 0;
+  min-height: 80px;
   overflow: auto;
   background: #8a93a3;
 }
@@ -962,9 +1009,6 @@ arcgis-map.ds-map {
   background: linear-gradient(135deg, transparent 0 55%, #8a93a3 55% 62%, transparent 62% 72%, #8a93a3 72% 79%, transparent 79% 89%, #8a93a3 89% 96%, transparent 96%);
 }
 
-/* nb_changed 2026-11-16: one-line hint shown above the PDF when no chunks have been returned yet */
-.pdf-window__hint { padding: 6px 12px; font-size: 0.82rem; color: var(--calcite-color-text-3, #6b6b6b); }
-
 /* a chunk's box: blue for the other returned chunks on the page, orange for the chosen one, dashed when the box is estimated */
 .pdf-box {
   position: absolute;
@@ -984,14 +1028,6 @@ arcgis-map.ds-map {
 
 .pdf-window__details { padding: 6px 10px 8px; border-top: 1px solid var(--calcite-color-border-3, #cfd4dc); }
 .pdf-window__meta { font-size: 0.8rem; color: var(--calcite-color-text-3, #6b6b6b); }
-.pdf-window__text {
-  margin-top: 4px;
-  max-height: 96px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 0.85rem;
-  unicode-bidi: plaintext;
-}
 .pdf-window__empty,
 .pdf-window__error { padding: 14px 12px; font-size: 0.9rem; }
 .pdf-window__error { color: #b3261e; font-weight: 600; }
