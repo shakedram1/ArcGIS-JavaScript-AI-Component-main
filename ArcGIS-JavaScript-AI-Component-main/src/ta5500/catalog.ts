@@ -107,3 +107,14 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
   }
   return out;
 }
+
+/** The catalog as numbered lines for an LLM: "<n>. <group> | <title>", n from 1, in map order. */
+export function catalogForPrompt(entries: CatalogEntry[]): string {
+  return entries.map((e, i) => `${i + 1}. ${groupLabel(e.group)} | ${e.title}`).join("\n");
+}
+
+/** The entries an LLM picked by number: valid, distinct 1-based integers only, returned in map order. */
+export function entriesFromPicks(picks: number[], entries: CatalogEntry[]): CatalogEntry[] {
+  const valid = new Set(picks.filter((n) => Number.isInteger(n) && n >= 1 && n <= entries.length));
+  return entries.filter((_, i) => valid.has(i + 1));
+}

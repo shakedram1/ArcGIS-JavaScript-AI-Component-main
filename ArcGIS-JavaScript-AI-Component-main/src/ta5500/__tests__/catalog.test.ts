@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { groupLabel, matchCatalog, normalizePlanText, type CatalogEntry, type CatalogMatch } from "../catalog";
+import { catalogForPrompt, entriesFromPicks, groupLabel, matchCatalog, normalizePlanText, type CatalogEntry, type CatalogMatch } from "../catalog";
 
 // The map's layers as the LayerList shows them (spec §3), group by group.
 const GROUPS: [string, string[]][] = [
@@ -94,4 +94,16 @@ test("matchCatalog: generic words do not name a group", () => {
     const m = matchCatalog(text, INVENTORY);
     assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
   }
+});
+
+test("catalogForPrompt: one numbered group | title line per layer, in map order", () => {
+  const lines = catalogForPrompt(INVENTORY).split("\n");
+  assert.equal(lines.length, 34);
+  assert.equal(lines[0], "1. אזורי ייעוד | גבול התכנית");
+  assert.equal(lines[33], "34. תחבורה וניידות | אזורי יעוד - דרך מהירה, ים ונחלים");
+});
+
+test("entriesFromPicks: keeps only valid, distinct 1-based indexes, in map order", () => {
+  assert.deepEqual(entriesFromPicks([3, 3, 0, 999, 1.5, 2], INVENTORY), [INVENTORY[1], INVENTORY[2]]);
+  assert.deepEqual(entriesFromPicks([], INVENTORY), []);
 });

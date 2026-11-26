@@ -106,6 +106,25 @@ Rules:
 - Do not judge whether the place is in Tel Aviv-Yafo; that is checked afterwards.
 - If the assistant's last message asked which planning area was meant and the latest request answers it, put the chosen area code in place and keep the original action and topic.`;
 
+/** Map agent: picks plan layers from the map's own catalog when the topic names none. Inputs: {request}, {topic}, {catalog}. */
+export const MAP_LAYER_PICK_PROMPT = `You choose which layers of the Tel Aviv-Yafo master plan map to show.
+
+The conversation so far, ending with the latest request:
+{request}
+
+The topic the user asked to show (in their words):
+{topic}
+
+The map's layers, one per line as "<number>. <drawing> | <layer title>":
+{catalog}
+
+Return layers: the numbers of the layers that answer the topic, or the subject of the conversation when the topic is vague (for example "השכבות הרלוונטיות").
+
+Rules:
+- Choose only numbers that appear in the list. Never invent numbers.
+- Skip the base layers that appear in several drawings (plan boundary, planning area number, street names) unless the user asked for them.
+- Return an empty list when no layer fits.`;
+
 // ---------- User-facing Hebrew copy ----------
 
 export const SCOPE_REPLY =

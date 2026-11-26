@@ -5,6 +5,7 @@ import {
   ANSWER_PROMPT,
   MAP_AGENT_DESCRIPTION,
   MAP_FAILED_NOTE,
+  MAP_LAYER_PICK_PROMPT,
   MAP_RESOLVE_PROMPT,
   MCP_NOT_PLAN_SUFFIX,
   NO_PLACE_NOTE,
@@ -54,6 +55,7 @@ test("prompt placeholders are exactly the expected input variables", () => {
   assert.deepEqual(placeholders(RESOLVE_PROMPT), ["currentFocus", "request"]);
   assert.deepEqual(placeholders(ANSWER_PROMPT), ["context", "question"]);
   assert.deepEqual(placeholders(MAP_RESOLVE_PROMPT), ["currentFocus", "request"]);
+  assert.deepEqual(placeholders(MAP_LAYER_PICK_PROMPT), ["catalog", "request", "topic"]);
 });
 
 test("prompts carry the key rules", () => {
