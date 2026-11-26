@@ -161,6 +161,16 @@
   kind: map
   expect: ta5500-map
   result: pending
+- q: "תדליק שכבות רלוונטיות הקשורות לתשתיות באיזור הזה"
+  kind: map
+  after: "מה הוראות התכנית לאזור תכנון 301?"
+  expect: ta5500-map
+  note: group topic (infrastructure); should draw the infrastructure layers for 301, not "no layer"
+  result: pending
+- q: "הצג את התחבורה על המפה"
+  kind: map
+  expect: ta5500-map
+  result: pending
 - q: "תסתיר את שכבת המוקדים"
   kind: map
   expect: ta5500-map
