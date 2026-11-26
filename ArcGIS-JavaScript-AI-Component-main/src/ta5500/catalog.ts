@@ -34,6 +34,22 @@ const GROUP_ALIASES: Record<string, string[]> = {
   "אזורי ומרחבי תכנון": ["אזורי תכנון", "אזורי ומרחבי"],
 };
 
+// Topic words that name a whole drawing group when no layer title is named ("תשתיות" → the infrastructure layers).
+// Deliberately not "ייעוד" or "עיצוב": those are everyday words in plan questions.
+const GROUP_TOPIC_WORDS: Record<string, string[]> = {
+  "סביבה ותשתיות": ["תשתיות", "סביבה"],
+  "תחבורה וניידות": ["תחבורה", "ניידות"],
+};
+
+/** The layers of every group whose topic word is in `n` (already normalized), minus titles that exist in several groups. */
+function matchGroupTopics(n: string, entries: CatalogEntry[]): CatalogEntry[] {
+  const groups = [...new Set(entries.map((e) => groupLabel(e.group)))];
+  const groupsOfTitle = new Map<string, Set<string>>();
+  for (const e of entries) groupsOfTitle.set(e.title, (groupsOfTitle.get(e.title) ?? new Set()).add(groupLabel(e.group)));
+  const named = groups.filter((g) => (GROUP_TOPIC_WORDS[g] ?? []).some((w) => hasWord(n, normalizePlanText(w))));
+  return entries.filter((e) => named.includes(groupLabel(e.group)) && groupsOfTitle.get(e.title)!.size === 1);
+}
+
 // Leading words of a title that are also an everyday place phrase ("באזור תכנון 105"): never matched alone.
 const LEAD_EXCLUDE = new Set(["אזור תכנון"]);
 
@@ -70,7 +86,10 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
   const kept = hits
     .filter((h) => !inGroupName(h))
     .filter((h) => !hits.some((o) => o !== h && o.matched.length > h.matched.length && o.matched.includes(h.matched)));
-  if (!kept.length) return out;
+  if (!kept.length) {
+    out.layers.push(...matchGroupTopics(n, entries));
+    return out;
+  }
 
   let rest = n;
   for (const h of kept) rest = rest.split(h.matched).join(" ");

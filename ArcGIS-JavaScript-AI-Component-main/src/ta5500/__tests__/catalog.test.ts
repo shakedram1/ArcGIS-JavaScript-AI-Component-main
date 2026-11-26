@@ -73,3 +73,25 @@ test("matchCatalog: 'תשתיות' and 'תשתית' are the same word (קווי 
   // the drawing "סביבה ותשתיות" is still named by either spelling
   assert.deepEqual(titles(matchCatalog("גבול התכנית של התשתיות", INVENTORY)), ["גבול התכנית|סביבה ותשתיות"]);
 });
+
+const INFRA_ONLY = ["קווים מאזורי ייעוד", "נקודות תשתית חמשל מים וביוב", "קווי תשתית", "פוליגוני תשתיות עירוניות", "מתקנים הנדסיים ימיים ונחלים"].map((t) => `${t}|סביבה ותשתיות`);
+
+test("matchCatalog: a topic word naming a group returns that group's own layers", () => {
+  for (const text of ["תציג לי את התשתיות", "תדליק שכבות הקשורות לתשתיות באיזור הזה"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual(titles(m), INFRA_ONLY, text);
+    assert.deepEqual(m.ambiguous, [], text);
+  }
+  assert.deepEqual(titles(matchCatalog("הצג את התחבורה", INVENTORY)), ["מוקדי תחבורה", "רשת תחבורה מטרופולינית", "פוליגונים תחבורה", "אזורי יעוד - דרך מהירה, ים ונחלים"].map((t) => `${t}|תחבורה וניידות`));
+});
+
+test("matchCatalog: a named layer wins over a group word", () => {
+  assert.deepEqual(titles(matchCatalog("הצג קווי תשתית", INVENTORY)), ["קווי תשתית|סביבה ותשתיות"]);
+});
+
+test("matchCatalog: generic words do not name a group", () => {
+  for (const text of ["מה הייעוד של האזור?", "איזה עיצוב יש שם?"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
+  }
+});
