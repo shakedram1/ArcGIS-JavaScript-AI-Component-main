@@ -119,3 +119,22 @@ test("matchCatalog: groupTopics:false skips the group fallback but still matches
   assert.deepEqual(matchCatalog("הצג מוקדים ותחבורה", INVENTORY, { groupTopics: false }).layers, []);
   assert.deepEqual(titles(matchCatalog("הצג קווי תשתית ותחבורה", INVENTORY, { groupTopics: false })), ["קווי תשתית|סביבה ותשתיות"]);
 });
+
+test("matchCatalog: shorter names of a layer title match it (קווי תיחום, מדרגות גובה, מתקנים הנדסיים, רשת תחבורה)", () => {
+  assert.deepEqual(matchCatalog("הצג את קווי התיחום", INVENTORY).ambiguous, [{ title: "צירי תכנון וקווי תיחום", groups: ["אזורי ייעוד", "עיצוב עירוני", "אזורי ומרחבי תכנון"] }]);
+  assert.deepEqual(titles(matchCatalog("תציג מדרגות גובה", INVENTORY)), ["מדרגות גובה בינוי|עיצוב עירוני"]);
+  assert.deepEqual(titles(matchCatalog("הצג את המתקנים ההנדסיים", INVENTORY)), ["מתקנים הנדסיים ימיים ונחלים|סביבה ותשתיות"]);
+  assert.deepEqual(titles(matchCatalog("הצג את רשת התחבורה", INVENTORY)), ["רשת תחבורה מטרופולינית|תחבורה וניידות"]);
+});
+
+test("matchCatalog: a drawing's name as a topic returns that drawing's own layers", () => {
+  assert.deepEqual(titles(matchCatalog("הצג את העיצוב העירוני", INVENTORY)), ["עיצוב עירוני פוליגוני", "מדרגות גובה בינוי", "אזורים ללא גובה"].map((t) => `${t}|עיצוב עירוני`));
+  assert.deepEqual(titles(matchCatalog("תציג את אזורי ומרחבי תכנון", INVENTORY)), ["מרחבי תכנון|אזורי ומרחבי תכנון", "הוראות רחוב מיוחדות|אזורי ומרחבי תכנון"]);
+});
+
+test("matchCatalog: height and building in a plain question name no layer", () => {
+  for (const text of ["מה גובה הבנייה המותר באזור 301?", "מה אומרת התכנית על בינוי?"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
+  }
+});

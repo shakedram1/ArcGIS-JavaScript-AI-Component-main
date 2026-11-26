@@ -39,6 +39,16 @@ const GROUP_ALIASES: Record<string, string[]> = {
 const GROUP_TOPIC_WORDS: Record<string, string[]> = {
   "סביבה ותשתיות": ["תשתיות"],
   "תחבורה וניידות": ["תחבורה", "ניידות"],
+  "עיצוב עירוני": ["עיצוב עירוני"],
+  "אזורי ומרחבי תכנון": ["אזורי ומרחבי תכנון"],
+};
+
+// Shorter names users give a layer whose title is long or (in the map's data) misspelled.
+const TITLE_ALIASES: Record<string, string[]> = {
+  "צירי תכנון וקווי תיחום": ["קווי תיחום"],
+  "מדרגות גובה בינוי": ["מדרגות גובה"],
+  "מתקנים הנדסיים ימיים ונחלים": ["מתקנים הנדסיים"],
+  "רשת תחבורה מטרופולינית": ["רשת תחבורה"],
 };
 
 /** The layers of every group whose topic word is in `n` (already normalized), minus titles that exist in several groups. */
@@ -77,7 +87,8 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
   for (const title of new Set(entries.map((e) => e.title))) {
     const full = normalizePlanText(title);
     const lead = leadOf(full);
-    const matched = hasWord(n, full) ? full : lead && hasWord(n, lead) ? lead : null;
+    const alias = (TITLE_ALIASES[title] ?? []).map(normalizePlanText).find((a) => hasWord(n, a));
+    const matched = hasWord(n, full) ? full : lead && hasWord(n, lead) ? lead : alias ?? null;
     if (matched) hits.push({ title, matched });
   }
   // A drawing's full name can contain a layer title ("אזורי ומרחבי תכנון" contains "מרחבי תכנון"): when the whole
