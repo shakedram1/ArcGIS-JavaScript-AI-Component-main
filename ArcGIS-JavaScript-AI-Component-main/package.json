@@ -15,11 +15,11 @@
     "hub:dev": "npx tsx --env-file=.env.local --watch hub/server.ts"
   },
   "dependencies": {
-    "@arcgis/ai-components": "5.1.27",
-    "@arcgis/coding-components": "5.1.27",
-    "@arcgis/core": "5.1.27",
-    "@arcgis/map-components": "5.1.27",
-    "@esri/calcite-components": "5.1.2",
+    "@arcgis/ai-components": "~5.2.0",
+    "@arcgis/coding-components": "~5.2.0",
+    "@arcgis/core": "~5.2.0",
+    "@arcgis/map-components": "~5.2.0",
+    "@esri/calcite-components": "^5.2.1",
     "@langchain/langgraph": "^1.1.5",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "cors": "^2.8.6",
