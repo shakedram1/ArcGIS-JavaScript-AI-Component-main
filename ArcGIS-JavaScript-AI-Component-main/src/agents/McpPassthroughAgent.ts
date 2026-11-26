@@ -353,7 +353,7 @@ const MCP_ROUTING_BASE_DESCRIPTION =
   "Do not additionally select a map layer, data-exploration, or feature-layer-editing agent for the same request just because the user asked to see the results on the map or in a popup — this agent alone fully covers that.";
 
 const MCP_POLYGON_DESCRIPTION =
-  "When the user refers to a polygon they selected or drew on the map (פוליגון שנבחר / שצויר) and asks about the master plan — תא/5500, תוכנית המתאר, הוראות, שימושים, זכויות בנייה, רח\"ק, גובה, ייעוד, אזור תכנון — or asks whether a polygon exists, to use it as a filter (להשתמש בפוליגון כמסנן), or to stop using it, use this agent, not data exploration: these are answered from the TA5500 RAG (search_plan) or the polygon filter tool, not from map layer attributes.";
+  "When the user refers to a polygon they selected or drew on the map (פוליגון שנבחר / שצויר) and asks about the master plan — תא/5500, תוכנית המתאר, הוראות, שימושים, זכויות בנייה, רח\"ק, גובה, ייעוד, אזור תכנון, הוראות תכנון, תכנון, planning area, zoning, building rights, master plan — or asks whether a polygon exists, to use it as a filter (להשתמש בפוליגון כמסנן), or to stop using it, use this agent, not data exploration: these are answered from the TA5500 RAG (search_plan) or the polygon filter tool, not from map layer attributes.";
 
 function buildDescriptionFromTools(tools: McpToolDef[], serverName: string, hubServers: HubServerSummary[] = []): string {
   if (!tools.length) {

@@ -12,7 +12,7 @@ export const PLAN_AGENT_DESCRIPTION =
   `Answers questions about the Tel Aviv master plan תא/5500 (תוכנית המתאר) from the plan document, including questions about a drawn polygon and its filter. Also handles requests to show or navigate to plan provisions in the instructions PDF. Use for 'מה הוראות התכנית לפוליגון?', 'מה מותר לבנות באזור 105?', 'מה אומר סעיף 4.3?', 'הצג את סעיף 4.3', 'גלול לסעיף על גובה מבנים', and 'ומה לגבי מגורים שם?'. When an answer is about a place or plan layer it may also focus relevant map layers; a text-only answer leaves the map unchanged. While a plan focus is active it also changes what is shown in it and clears it (נקה מיקוד). Do NOT use for map actions that do not ask what the plan says (navigate the map, show/hide layers, count features).`;
 
 export const MAP_AGENT_DESCRIPTION =
-  `Performs map actions on the Tel Aviv-Yafo master plan map: go to a planning area, sub-area, street, neighborhood or address in Tel Aviv-Yafo; show, hide or filter the plan layers (zone types, development foci, planning areas, special streets); reset the map. Use for: 'תתמקד על אזור 703', 'קח אותי לרמת אביב', 'הצג רק אזורי מגורים', 'תסתיר את שכבת המוקדים', 'אפס את המפה'. Do NOT use for questions about what the plan says or allows (Plan agent), counts or statistics (data exploration), or places outside Tel Aviv-Yafo.`;
+  `Performs map actions on the Tel Aviv-Yafo master plan map: go to a planning area, sub-area, street, neighborhood or address in Tel Aviv-Yafo; show, hide or filter the plan layers (zone types, development foci, planning areas, special streets, infrastructure, transport); reset the map. Use for: 'תתמקד על אזור 703', 'קח אותי לרמת אביב', 'הצג רק אזורי מגורים', 'תדליק שכבות של תשתיות', 'תסתיר את שכבת המוקדים', 'אפס את המפה'. Do NOT use for questions about what the plan says or allows (Plan agent), counts or statistics (data exploration), or places outside Tel Aviv-Yafo.`;
 
 // Spec §5.2 draft plus a closing "Do NOT use" sentence (every description states its negative space).
 export const SCOPE_AGENT_DESCRIPTION =
@@ -105,6 +105,25 @@ Rules:
 - If the assistant's last message asked from which drawing (תשריט) to show a layer and the latest request answers it, set action "show" and topic to the layer title followed by the chosen drawing (for example "גבול התכנית עיצוב עירוני").
 - Do not judge whether the place is in Tel Aviv-Yafo; that is checked afterwards.
 - If the assistant's last message asked which planning area was meant and the latest request answers it, put the chosen area code in place and keep the original action and topic.`;
+
+/** Map agent: picks plan layers from the map's own catalog when the topic names none. Inputs: {request}, {topic}, {catalog}. */
+export const MAP_LAYER_PICK_PROMPT = `You choose which layers of the Tel Aviv-Yafo master plan map to show.
+
+The conversation so far, ending with the latest request:
+{request}
+
+The topic the user asked to show (in their words):
+{topic}
+
+The map's layers, one per line as "<number>. <drawing> | <layer title>":
+{catalog}
+
+Return layers: the numbers of the layers that answer the topic, or the subject of the conversation when the topic is vague (for example "השכבות הרלוונטיות").
+
+Rules:
+- Choose only numbers that appear in the list. Never invent numbers.
+- Skip the base layers that appear in several drawings (plan boundary, planning area number, street names) unless the user asked for them.
+- Return an empty list when no layer fits.`;
 
 // ---------- User-facing Hebrew copy ----------
 

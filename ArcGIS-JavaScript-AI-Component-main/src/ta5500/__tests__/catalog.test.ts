@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { groupLabel, matchCatalog, normalizePlanText, type CatalogEntry, type CatalogMatch } from "../catalog";
+import { catalogForPrompt, entriesFromPicks, groupLabel, matchCatalog, normalizePlanText, type CatalogEntry, type CatalogMatch } from "../catalog";
 
 // The map's layers as the LayerList shows them (spec §3), group by group.
 const GROUPS: [string, string[]][] = [
@@ -72,4 +72,69 @@ test("matchCatalog: 'תשתיות' and 'תשתית' are the same word (קווי 
   }
   // the drawing "סביבה ותשתיות" is still named by either spelling
   assert.deepEqual(titles(matchCatalog("גבול התכנית של התשתיות", INVENTORY)), ["גבול התכנית|סביבה ותשתיות"]);
+});
+
+const INFRA_ONLY = ["קווים מאזורי ייעוד", "נקודות תשתית חמשל מים וביוב", "קווי תשתית", "פוליגוני תשתיות עירוניות", "מתקנים הנדסיים ימיים ונחלים"].map((t) => `${t}|סביבה ותשתיות`);
+
+test("matchCatalog: a topic word naming a group returns that group's own layers", () => {
+  for (const text of ["תציג לי את התשתיות", "תדליק שכבות הקשורות לתשתיות באיזור הזה"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual(titles(m), INFRA_ONLY, text);
+    assert.deepEqual(m.ambiguous, [], text);
+  }
+  assert.deepEqual(titles(matchCatalog("הצג את התחבורה", INVENTORY)), ["מוקדי תחבורה", "רשת תחבורה מטרופולינית", "פוליגונים תחבורה", "אזורי יעוד - דרך מהירה, ים ונחלים"].map((t) => `${t}|תחבורה וניידות`));
+});
+
+test("matchCatalog: a named layer wins over a group word", () => {
+  assert.deepEqual(titles(matchCatalog("הצג קווי תשתית", INVENTORY)), ["קווי תשתית|סביבה ותשתיות"]);
+});
+
+test("matchCatalog: generic words do not name a group", () => {
+  for (const text of ["מה הייעוד של האזור?", "איזה עיצוב יש שם?"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
+  }
+});
+
+test("catalogForPrompt: one numbered group | title line per layer, in map order", () => {
+  const lines = catalogForPrompt(INVENTORY).split("\n");
+  assert.equal(lines.length, 34);
+  assert.equal(lines[0], "1. אזורי ייעוד | גבול התכנית");
+  assert.equal(lines[33], "34. תחבורה וניידות | אזורי יעוד - דרך מהירה, ים ונחלים");
+});
+
+test("entriesFromPicks: keeps only valid, distinct 1-based indexes, in map order", () => {
+  assert.deepEqual(entriesFromPicks([3, 3, 0, 999, 1.5, 2], INVENTORY), [INVENTORY[1], INVENTORY[2]]);
+  assert.deepEqual(entriesFromPicks([], INVENTORY), []);
+});
+
+test("matchCatalog: 'סביבה' as 'vicinity' in a plain question names no group", () => {
+  for (const text of ["מה מותר לבנות בסביבה של אזור 301?", "מה אומרת התכנית על איכות הסביבה?"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
+  }
+});
+
+test("matchCatalog: groupTopics:false skips the group fallback but still matches titles", () => {
+  assert.deepEqual(matchCatalog("הצג מוקדים ותחבורה", INVENTORY, { groupTopics: false }).layers, []);
+  assert.deepEqual(titles(matchCatalog("הצג קווי תשתית ותחבורה", INVENTORY, { groupTopics: false })), ["קווי תשתית|סביבה ותשתיות"]);
+});
+
+test("matchCatalog: shorter names of a layer title match it (קווי תיחום, מדרגות גובה, מתקנים הנדסיים, רשת תחבורה)", () => {
+  assert.deepEqual(matchCatalog("הצג את קווי התיחום", INVENTORY).ambiguous, [{ title: "צירי תכנון וקווי תיחום", groups: ["אזורי ייעוד", "עיצוב עירוני", "אזורי ומרחבי תכנון"] }]);
+  assert.deepEqual(titles(matchCatalog("תציג מדרגות גובה", INVENTORY)), ["מדרגות גובה בינוי|עיצוב עירוני"]);
+  assert.deepEqual(titles(matchCatalog("הצג את המתקנים ההנדסיים", INVENTORY)), ["מתקנים הנדסיים ימיים ונחלים|סביבה ותשתיות"]);
+  assert.deepEqual(titles(matchCatalog("הצג את רשת התחבורה", INVENTORY)), ["רשת תחבורה מטרופולינית|תחבורה וניידות"]);
+});
+
+test("matchCatalog: a drawing's name as a topic returns that drawing's own layers", () => {
+  assert.deepEqual(titles(matchCatalog("הצג את העיצוב העירוני", INVENTORY)), ["עיצוב עירוני פוליגוני", "מדרגות גובה בינוי", "אזורים ללא גובה"].map((t) => `${t}|עיצוב עירוני`));
+  assert.deepEqual(titles(matchCatalog("תציג את אזורי ומרחבי תכנון", INVENTORY)), ["מרחבי תכנון|אזורי ומרחבי תכנון", "הוראות רחוב מיוחדות|אזורי ומרחבי תכנון"]);
+});
+
+test("matchCatalog: height and building in a plain question name no layer", () => {
+  for (const text of ["מה גובה הבנייה המותר באזור 301?", "מה אומרת התכנית על בינוי?"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
+  }
 });

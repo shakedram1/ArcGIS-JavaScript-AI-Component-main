@@ -34,6 +34,32 @@ const GROUP_ALIASES: Record<string, string[]> = {
   "אזורי ומרחבי תכנון": ["אזורי תכנון", "אזורי ומרחבי"],
 };
 
+// Topic words that name a whole drawing group when no layer title is named ("תשתיות" → the infrastructure layers).
+// Deliberately not "ייעוד", "עיצוב" or "סביבה": everyday words in plan questions ("בסביבה של אזור 301" = nearby).
+const GROUP_TOPIC_WORDS: Record<string, string[]> = {
+  "סביבה ותשתיות": ["תשתיות"],
+  "תחבורה וניידות": ["תחבורה", "ניידות"],
+  "עיצוב עירוני": ["עיצוב עירוני"],
+  "אזורי ומרחבי תכנון": ["אזורי ומרחבי תכנון"],
+};
+
+// Shorter names users give a layer whose title is long or (in the map's data) misspelled.
+const TITLE_ALIASES: Record<string, string[]> = {
+  "צירי תכנון וקווי תיחום": ["קווי תיחום"],
+  "מדרגות גובה בינוי": ["מדרגות גובה"],
+  "מתקנים הנדסיים ימיים ונחלים": ["מתקנים הנדסיים"],
+  "רשת תחבורה מטרופולינית": ["רשת תחבורה"],
+};
+
+/** The layers of every group whose topic word is in `n` (already normalized), minus titles that exist in several groups. */
+function matchGroupTopics(n: string, entries: CatalogEntry[]): CatalogEntry[] {
+  const groups = [...new Set(entries.map((e) => groupLabel(e.group)))];
+  const groupsOfTitle = new Map<string, Set<string>>();
+  for (const e of entries) groupsOfTitle.set(e.title, (groupsOfTitle.get(e.title) ?? new Set()).add(groupLabel(e.group)));
+  const named = groups.filter((g) => (GROUP_TOPIC_WORDS[g] ?? []).some((w) => hasWord(n, normalizePlanText(w))));
+  return entries.filter((e) => named.includes(groupLabel(e.group)) && groupsOfTitle.get(e.title)!.size === 1);
+}
+
 // Leading words of a title that are also an everyday place phrase ("באזור תכנון 105"): never matched alone.
 const LEAD_EXCLUDE = new Set(["אזור תכנון"]);
 
@@ -49,8 +75,10 @@ function leadOf(title: string): string | null {
  * Layers named in `text`. A title matches whole or by its lead. A named layer that exists in one group (or in the
  * one group the text names) is returned in `layers`; one that exists in several groups, with no group named or a
  * named group that lacks it, is returned in `ambiguous` with the groups that have it, in map order.
+ * When no layer is named, a topic word that names a group ("תשתיות") returns that group's own layers, unless
+ * `opts.groupTopics` is false.
  */
-export function matchCatalog(text: string | null | undefined, entries: CatalogEntry[]): CatalogMatch {
+export function matchCatalog(text: string | null | undefined, entries: CatalogEntry[], opts: { groupTopics?: boolean } = {}): CatalogMatch {
   const out: CatalogMatch = { layers: [], ambiguous: [] };
   const n = normalizePlanText(text ?? "");
   if (!n) return out;
@@ -59,7 +87,8 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
   for (const title of new Set(entries.map((e) => e.title))) {
     const full = normalizePlanText(title);
     const lead = leadOf(full);
-    const matched = hasWord(n, full) ? full : lead && hasWord(n, lead) ? lead : null;
+    const alias = (TITLE_ALIASES[title] ?? []).map(normalizePlanText).find((a) => hasWord(n, a));
+    const matched = hasWord(n, full) ? full : lead && hasWord(n, lead) ? lead : alias ?? null;
     if (matched) hits.push({ title, matched });
   }
   // A drawing's full name can contain a layer title ("אזורי ומרחבי תכנון" contains "מרחבי תכנון"): when the whole
@@ -70,7 +99,10 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
   const kept = hits
     .filter((h) => !inGroupName(h))
     .filter((h) => !hits.some((o) => o !== h && o.matched.length > h.matched.length && o.matched.includes(h.matched)));
-  if (!kept.length) return out;
+  if (!kept.length) {
+    if (opts.groupTopics !== false) out.layers.push(...matchGroupTopics(n, entries));
+    return out;
+  }
 
   let rest = n;
   for (const h of kept) rest = rest.split(h.matched).join(" ");
@@ -87,4 +119,15 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
     else out.ambiguous.push({ title: h.title, groups: [...new Set(all.map((e) => groupLabel(e.group)))] });
   }
   return out;
+}
+
+/** The catalog as numbered lines for an LLM: "<n>. <group> | <title>", n from 1, in map order. */
+export function catalogForPrompt(entries: CatalogEntry[]): string {
+  return entries.map((e, i) => `${i + 1}. ${groupLabel(e.group)} | ${e.title}`).join("\n");
+}
+
+/** The entries an LLM picked by number: valid, distinct 1-based integers only, returned in map order. */
+export function entriesFromPicks(picks: number[], entries: CatalogEntry[]): CatalogEntry[] {
+  const valid = new Set(picks.filter((n) => Number.isInteger(n) && n >= 1 && n <= entries.length));
+  return entries.filter((_, i) => valid.has(i + 1));
 }
