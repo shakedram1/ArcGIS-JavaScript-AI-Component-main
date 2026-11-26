@@ -12,7 +12,7 @@ import { agentRuntimeChannels, readAgentRequest, agentResult } from "./agentRunt
 import { getPlanLocations } from "../ta5500/ragClient";
 import type { PlanLocations } from "../ta5500/types";
 import { TA5500_LAYERS, type LayerKey } from "../ta5500/layers";
-import { matchCatalog } from "../ta5500/catalog";
+import { catalogForPrompt, entriesFromPicks, matchCatalog } from "../ta5500/catalog";
 import { planFocus, focusStore, type FocusState, type Place } from "../ta5500/focus";
 import {
   getView,
@@ -27,6 +27,7 @@ import {
 } from "../ta5500/mapFocus";
 import {
   MAP_AGENT_DESCRIPTION,
+  MAP_LAYER_PICK_PROMPT,
   MAP_RESOLVE_PROMPT,
   NO_PLACE_NOTE,
   NO_TOPIC_NOTE,
@@ -66,6 +67,8 @@ const resolveSchema = z.object({
   place: z.string().nullable(),
   topic: z.string().nullable(),
 });
+
+const pickSchema = z.object({ layers: z.array(z.number().int()) });
 
 const labelsOf = (keys: LayerKey[]) => keys.map((k) => TA5500_LAYERS[k].label);
 
@@ -117,12 +120,14 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
     async function run(s: S, config?: RunnableConfig) {
       let r: z.infer<typeof resolveSchema>;
       let locations: PlanLocations | null = null;
+      let convo = "";
       try {
         const { request, messages } = readAgentRequest(s);
+        convo = conversationText(messages, request);
         r = await invokeStructuredPrompt({
           promptText: MAP_RESOLVE_PROMPT,
           inputVariables: {
-            request: conversationText(messages, request),
+            request: convo,
             currentFocus: focusStore.get()?.label ?? "none",
           },
           schema: resolveSchema,
@@ -151,9 +156,27 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
       const topicText = r.topic?.trim() ?? "";
       // Catalog layers (the map's own layer titles, by drawing) win over the six known plan layers for show / filter;
       // hide keeps acting on the known layers only.
-      const catalog = view && r.action !== "hide" ? matchCatalog(topicText, listCatalog(view)) : { layers: [], ambiguous: [] };
-      const useCatalog = catalog.layers.length > 0 || catalog.ambiguous.length > 0;
+      const entries = view && r.action !== "hide" ? listCatalog(view) : [];
+      let catalog = entries.length ? matchCatalog(topicText, entries) : { layers: [], ambiguous: [] };
+      let useCatalog = catalog.layers.length > 0 || catalog.ambiguous.length > 0;
       const layers = useCatalog ? new Map<LayerKey, string[]>() : topicLayers(topicText, loc);
+      // Last resort for a show / filter topic that names no layer or group ("השכבות הרלוונטיות"): the LLM picks layers
+      // by number from the map's own catalog; only valid numbers survive, so nothing outside the plan is drawn.
+      if (!useCatalog && !layers.size && topicText && entries.length) {
+        try {
+          const pick = await invokeStructuredPrompt({
+            promptText: MAP_LAYER_PICK_PROMPT,
+            inputVariables: { request: convo, topic: topicText, catalog: catalogForPrompt(entries) },
+            schema: pickSchema,
+            temperature: 0,
+            config,
+          });
+          catalog = { layers: entriesFromPicks(pick.layers, entries), ambiguous: [] };
+          useCatalog = catalog.layers.length > 0;
+        } catch (err) {
+          return agentResult(failureReply(err, TAG));
+        }
+      }
       const wholeUids = catalog.layers.map((e) => e.uid);
 
       // The place is resolved for every action (hide too: a place outside Tel Aviv-Yafo is declined).
