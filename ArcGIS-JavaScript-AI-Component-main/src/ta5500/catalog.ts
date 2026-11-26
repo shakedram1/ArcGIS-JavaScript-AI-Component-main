@@ -35,9 +35,9 @@ const GROUP_ALIASES: Record<string, string[]> = {
 };
 
 // Topic words that name a whole drawing group when no layer title is named ("תשתיות" → the infrastructure layers).
-// Deliberately not "ייעוד" or "עיצוב": those are everyday words in plan questions.
+// Deliberately not "ייעוד", "עיצוב" or "סביבה": everyday words in plan questions ("בסביבה של אזור 301" = nearby).
 const GROUP_TOPIC_WORDS: Record<string, string[]> = {
-  "סביבה ותשתיות": ["תשתיות", "סביבה"],
+  "סביבה ותשתיות": ["תשתיות"],
   "תחבורה וניידות": ["תחבורה", "ניידות"],
 };
 
@@ -65,8 +65,10 @@ function leadOf(title: string): string | null {
  * Layers named in `text`. A title matches whole or by its lead. A named layer that exists in one group (or in the
  * one group the text names) is returned in `layers`; one that exists in several groups, with no group named or a
  * named group that lacks it, is returned in `ambiguous` with the groups that have it, in map order.
+ * When no layer is named, a topic word that names a group ("תשתיות") returns that group's own layers, unless
+ * `opts.groupTopics` is false.
  */
-export function matchCatalog(text: string | null | undefined, entries: CatalogEntry[]): CatalogMatch {
+export function matchCatalog(text: string | null | undefined, entries: CatalogEntry[], opts: { groupTopics?: boolean } = {}): CatalogMatch {
   const out: CatalogMatch = { layers: [], ambiguous: [] };
   const n = normalizePlanText(text ?? "");
   if (!n) return out;
@@ -87,7 +89,7 @@ export function matchCatalog(text: string | null | undefined, entries: CatalogEn
     .filter((h) => !inGroupName(h))
     .filter((h) => !hits.some((o) => o !== h && o.matched.length > h.matched.length && o.matched.includes(h.matched)));
   if (!kept.length) {
-    out.layers.push(...matchGroupTopics(n, entries));
+    if (opts.groupTopics !== false) out.layers.push(...matchGroupTopics(n, entries));
     return out;
   }
 

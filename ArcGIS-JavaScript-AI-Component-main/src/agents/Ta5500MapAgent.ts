@@ -157,12 +157,17 @@ export function registerTa5500MapAgent(assistant: HTMLElement, ctx: { baseUrl: s
       // Catalog layers (the map's own layer titles, by drawing) win over the six known plan layers for show / filter;
       // hide keeps acting on the known layers only.
       const entries = view && r.action !== "hide" ? listCatalog(view) : [];
-      let catalog = entries.length ? matchCatalog(topicText, entries) : { layers: [], ambiguous: [] };
+      // Order: a named layer, then the known plan layers, then a group word ("תשתיות"), then the LLM pick.
+      let catalog = entries.length ? matchCatalog(topicText, entries, { groupTopics: false }) : { layers: [], ambiguous: [] };
       let useCatalog = catalog.layers.length > 0 || catalog.ambiguous.length > 0;
       const layers = useCatalog ? new Map<LayerKey, string[]>() : topicLayers(topicText, loc);
+      if (!useCatalog && !layers.size && entries.length) {
+        catalog = matchCatalog(topicText, entries);
+        useCatalog = catalog.layers.length > 0;
+      }
       // Last resort for a show / filter topic that names no layer or group ("השכבות הרלוונטיות"): the LLM picks layers
       // by number from the map's own catalog; only valid numbers survive, so nothing outside the plan is drawn.
-      if (!useCatalog && !layers.size && topicText && entries.length) {
+      if (!useCatalog && !layers.size && topicText && entries.length && (r.action === "show" || r.action === "filter")) {
         try {
           const pick = await invokeStructuredPrompt({
             promptText: MAP_LAYER_PICK_PROMPT,

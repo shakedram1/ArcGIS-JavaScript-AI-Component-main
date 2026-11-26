@@ -107,3 +107,15 @@ test("entriesFromPicks: keeps only valid, distinct 1-based indexes, in map order
   assert.deepEqual(entriesFromPicks([3, 3, 0, 999, 1.5, 2], INVENTORY), [INVENTORY[1], INVENTORY[2]]);
   assert.deepEqual(entriesFromPicks([], INVENTORY), []);
 });
+
+test("matchCatalog: 'סביבה' as 'vicinity' in a plain question names no group", () => {
+  for (const text of ["מה מותר לבנות בסביבה של אזור 301?", "מה אומרת התכנית על איכות הסביבה?"]) {
+    const m = matchCatalog(text, INVENTORY);
+    assert.deepEqual([m.layers, m.ambiguous], [[], []], text);
+  }
+});
+
+test("matchCatalog: groupTopics:false skips the group fallback but still matches titles", () => {
+  assert.deepEqual(matchCatalog("הצג מוקדים ותחבורה", INVENTORY, { groupTopics: false }).layers, []);
+  assert.deepEqual(titles(matchCatalog("הצג קווי תשתית ותחבורה", INVENTORY, { groupTopics: false })), ["קווי תשתית|סביבה ותשתיות"]);
+});
